@@ -127,6 +127,16 @@ function FolderNode({ node, depth, onNavigate }: {
             📋
           </button>
         )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate(p.id);
+          }}
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+          title="Open terminal"
+        >
+          ▶
+        </button>
       </div>
     );
   }

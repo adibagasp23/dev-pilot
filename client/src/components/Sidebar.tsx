@@ -3,7 +3,6 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 const links = [
   { label: 'All Projects', path: '/', filter: null },
   { label: '📱 APP', path: '/?type=app', filter: 'app' },
-  { label: '🤖 AGENT', path: '/?type=agent', filter: 'agent' },
 ];
 
 export function Sidebar() {
