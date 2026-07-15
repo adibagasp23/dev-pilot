@@ -170,7 +170,7 @@ function FolderNode({ node, depth, onNavigate }: {
         >
           📋
         </button>
-        {node.children?.some(c => c.type === 'project') && (
+        {node.children && (
           <button
             onClick={(e) => {
               e.stopPropagation();
