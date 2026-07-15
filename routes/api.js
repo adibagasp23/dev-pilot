@@ -10,7 +10,9 @@ router.get('/projects', async (req, res) => {
   const db = getDB();
   const typeFilter = req.query.type;
   let projects;
-  if (typeFilter) {
+  if (typeFilter === 'app') {
+    projects = await db('projects').whereIn('type', ['flutter', 'laravel']).orderBy('name');
+  } else if (typeFilter) {
     projects = await db('projects').where('type', typeFilter).orderBy('name');
   } else {
     projects = await db('projects').orderBy(['type', 'name']);
@@ -217,6 +219,36 @@ router.delete('/settings/folders/:id', async (req, res) => {
   await db('scan_folders').where('id', req.params.id).del();
 
   res.json({ ok: true });
+});
+
+// Create project manually
+router.post('/create-project', async (req, res) => {
+  const db = getDB();
+  const { name, type, path } = req.body;
+  if (!name || !type) return res.status(400).json({ error: 'Name and type required' });
+  if (!['flutter', 'laravel', 'agent'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
+
+  const [id] = await db('projects').insert({ name, type, path: path || '' });
+  const project = await db('projects').where('id', id).first();
+
+  // Add default templates for the type
+  const templates = await db('command_templates').where('project_type', type);
+  let maxOrder = 0;
+  for (const tmpl of templates) {
+    maxOrder++;
+    await db('processes').insert({
+      project_id: id, label: tmpl.label, command: tmpl.command, sort_order: maxOrder,
+    });
+  }
+
+  // If no agent templates, add default 'pi' command
+  if (type === 'agent' && templates.length === 0) {
+    await db('processes').insert({
+      project_id: id, label: 'Pi Agent', command: 'pi', sort_order: 1,
+    });
+  }
+
+  res.json(project);
 });
 
 // Re-scan all

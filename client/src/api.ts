@@ -75,6 +75,12 @@ export const api = {
   deleteFolder: (id: number) =>
     fetchJSON<{ ok: boolean }>(`/settings/folders/${id}`, { method: 'DELETE' }),
 
+  createProject: (name: string, type: string, path?: string) =>
+    fetchJSON<Project>('/create-project', {
+      method: 'POST',
+      body: JSON.stringify({ name, type, path }),
+    }),
+
   rescan: () =>
     fetchJSON<{ ok: boolean }>('/scan', { method: 'POST' }),
 

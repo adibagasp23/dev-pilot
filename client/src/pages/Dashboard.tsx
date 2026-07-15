@@ -24,9 +24,11 @@ export function Dashboard() {
 
   const title = !typeFilter
     ? 'All Projects'
-    : typeFilter === 'flutter'
-      ? 'Flutter Projects'
-      : 'Laravel Projects';
+    : typeFilter.toUpperCase();
+
+  const subtitle = typeFilter === 'app'
+    ? projects.filter(p => p.type === 'flutter').length + ' Flutter · ' + projects.filter(p => p.type === 'laravel').length + ' Laravel'
+    : projects.length + ' project(s) found';
 
   if (loading) return <div className="text-gray-400">Loading...</div>;
 
@@ -35,14 +37,30 @@ export function Dashboard() {
       <div className="mb-6 flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
-          <p className="text-gray-500 text-sm">{projects.length} project(s) found</p>
+          <p className="text-gray-500 text-sm">{subtitle}</p>
         </div>
-        <button
-          onClick={() => navigate('/settings')}
-          className="bg-emerald-500 text-white px-4 py-2 rounded-lg hover:bg-emerald-600 transition text-sm"
-        >
-          + Add Folder
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/settings')}
+            className="bg-emerald-500 text-white px-4 py-2 rounded-lg hover:bg-emerald-600 transition text-sm"
+          >
+            + Add Folder
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                await api.createProject('Agent', 'agent');
+                window.location.href = '/?type=agent';
+                toast('Agent project created!');
+              } catch (err: any) {
+                toast(err.message);
+              }
+            }}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition text-sm"
+          >
+            🤖 New Agent
+          </button>
+        </div>
       </div>
 
       {projects.length === 0 ? (
@@ -58,7 +76,7 @@ export function Dashboard() {
               key={project.id}
               className="cursor-pointer hover:shadow-md transition border-l-4"
               style={{
-                borderLeftColor: project.type === 'flutter' ? '#3b82f6' : '#f97316',
+                borderLeftColor: project.type === 'flutter' ? '#3b82f6' : project.type === 'agent' ? '#a855f7' : '#f97316',
               }}
               onClick={() => navigate(`/project/${project.id}`)}
             >
@@ -67,7 +85,15 @@ export function Dashboard() {
                   <div>
                     <CardTitle className="text-gray-800">{project.name}</CardTitle>
                     <CardDescription>
-                      {project.type.charAt(0).toUpperCase() + project.type.slice(1)}
+                      <span className={
+                        project.type === 'flutter'
+                          ? 'text-blue-500'
+                          : project.type === 'laravel'
+                            ? 'text-orange-500'
+                            : 'text-purple-500'
+                      }>
+                        {project.type === 'agent' ? '🤖 AGENT' : project.type.charAt(0).toUpperCase() + project.type.slice(1)}
+                      </span>
                     </CardDescription>
                   </div>
                   <Badge variant="secondary">
