@@ -28,6 +28,10 @@ function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath:
       api.startProcess(piProc.id).then(() => {
         setProcId(piProc.id);
         setStatus('running');
+        // Send initial newline to trigger pi's greeting output
+        setTimeout(() => {
+          api.sendInput(piProc.id, '\n').catch(() => {});
+        }, 500);
       }).catch((err) => {
         // If already running, use it anyway
         if (err.message?.includes('already running')) {
