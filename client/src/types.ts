@@ -2,7 +2,7 @@ export interface Project {
   id: number;
   name: string;
   path: string;
-  type: 'flutter' | 'laravel' | 'agent';
+  type: 'flutter' | 'laravel' | 'agent' | 'next';
   created_at: string;
 }
 

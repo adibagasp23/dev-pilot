@@ -284,7 +284,9 @@ export function ProjectDetail() {
           className={`mt-1 ${
             project.type === 'flutter'
               ? 'bg-blue-100 text-blue-700'
-              : 'bg-orange-100 text-orange-700'
+              : project.type === 'next'
+                ? 'bg-gray-100 text-gray-700'
+                : 'bg-orange-100 text-orange-700'
           }`}
         >
           {project.type.charAt(0).toUpperCase() + project.type.slice(1)}

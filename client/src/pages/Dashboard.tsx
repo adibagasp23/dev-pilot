@@ -98,13 +98,13 @@ function FolderNode({ node, depth, onNavigate }: {
         onClick={() => onNavigate(p.id)}
       >
         <span className="text-gray-400 text-sm w-4">
-          {p.type === 'flutter' ? '🔵' : p.type === 'laravel' ? '🟠' : '🟣'}
+          {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
         </span>
         <span className="text-gray-700 text-sm truncate flex-1">{node.name}</span>
         <span className={`text-xs px-1.5 py-0.5 rounded ${
-          p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
+          p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
         }`}>
-          {p.type === 'agent' ? 'AGENT' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
+          {p.type === 'agent' ? 'AGENT' : p.type === 'next' ? 'Next.js' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
         </span>
         {p.path && (
           <span className="text-xs text-gray-400 hidden group-hover:inline ml-1 truncate max-w-[200px]">
@@ -220,7 +220,7 @@ export function Dashboard() {
     : typeFilter.toUpperCase();
 
   const subtitle = typeFilter === 'app'
-    ? projects.filter(p => p.type === 'flutter').length + ' Flutter · ' + projects.filter(p => p.type === 'laravel').length + ' Laravel'
+    ? 'Flutter ' + projects.filter(p => p.type === 'flutter').length + ' · Laravel ' + projects.filter(p => p.type === 'laravel').length + ' · Next ' + projects.filter(p => p.type === 'next').length
     : projects.length + ' project(s) found';
 
   const tree = buildTree(projects, countMap);

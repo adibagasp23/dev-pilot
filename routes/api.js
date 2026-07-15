@@ -13,7 +13,7 @@ router.get('/projects', async (req, res) => {
 
   let projects;
   if (typeFilter === 'app') {
-    projects = await db('projects').whereIn('type', ['flutter', 'laravel']).orderBy('name');
+    projects = await db('projects').whereIn('type', ['flutter', 'laravel', 'next']).orderBy('name');
   } else if (typeFilter) {
     projects = await db('projects').where('type', typeFilter).orderBy('name');
   } else {

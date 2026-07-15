@@ -17,7 +17,7 @@ function detectProjectType(folderPath) {
   const files = fs.readdirSync(folderPath);
   if (files.includes('pubspec.yaml')) return 'flutter';
   if (files.includes('artisan')) return 'laravel';
-  if (files.includes('next.config.ts') || files.includes('next.config.js') || files.includes('next.config.mjs')) return 'laravel';
+  if (files.includes('next.config.ts') || files.includes('next.config.js') || files.includes('next.config.mjs')) return 'next';
   return 'other';
 }
 
