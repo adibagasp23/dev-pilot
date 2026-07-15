@@ -1,0 +1,14 @@
+<div class="process-card bg-white rounded-lg shadow p-4 border-l-4 <%= project.type === 'flutter' ? 'border-blue-500' : 'border-orange-500' %>">
+  <div class="flex justify-between items-start mb-2">
+    <div>
+      <h3 class="font-semibold text-gray-800"><%= project.name %></h3>
+      <span class="text-xs text-gray-500"><%= project.type.charAt(0).toUpperCase() + project.type.slice(1) %></span>
+    </div>
+    <span class="text-xs bg-gray-100 px-2 py-1 rounded"><%= countMap[project.id] || 0 %> running</span>
+  </div>
+  <p class="text-xs text-gray-400 truncate mb-3"><%= project.path %></p>
+  <a href="/project/<%= project.id %>" 
+     class="inline-block text-sm bg-gray-800 text-white px-3 py-1.5 rounded hover:bg-gray-700 transition">
+    Open →
+  </a>
+</div>

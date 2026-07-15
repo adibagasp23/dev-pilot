@@ -1,0 +1,29 @@
+<% 
+  let title = 'All Projects';
+  if (activeFilter === 'flutter') title = 'Flutter Projects';
+  else if (activeFilter === 'laravel') title = 'Laravel Projects';
+%>
+
+<div class="mb-6 flex justify-between items-center">
+  <div>
+    <h2 class="text-2xl font-bold text-gray-800"><%= title %></h2>
+    <p class="text-gray-500 text-sm"><%= projects.length %> project(s) found</p>
+  </div>
+  <a href="/settings" class="bg-emerald-500 text-white px-4 py-2 rounded-lg hover:bg-emerald-600 transition text-sm">
+    + Add Folder
+  </a>
+</div>
+
+<% if (projects.length === 0) { %>
+  <div class="text-center py-20 text-gray-400">
+    <p class="text-4xl mb-2">📂</p>
+    <p class="text-lg">No projects yet</p>
+    <p class="text-sm mt-1">Go to Settings to add scan folders</p>
+  </div>
+<% } else { %>
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <% for (const project of projects) { %>
+      <%- include('../partials/project-card', { project, countMap }) %>
+    <% } %>
+  </div>
+<% } %>
