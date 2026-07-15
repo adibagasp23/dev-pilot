@@ -101,29 +101,6 @@ function FolderNode({ node, depth, onNavigate }: {
           {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
         </span>
         <span className="text-gray-700 text-sm truncate flex-1">{node.name}</span>
-        {p.path && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigator.clipboard.writeText(p.path);
-              toast('Path copied!');
-            }}
-            className="text-gray-400 hover:text-emerald-500 transition text-xs opacity-0 group-hover:opacity-100 cursor-pointer"
-            title="Copy path"
-          >
-            📋
-          </button>
-        )}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate(p.id);
-          }}
-          className="text-gray-400 hover:text-emerald-500 transition text-xs opacity-0 group-hover:opacity-100 cursor-pointer"
-          title="Open terminal"
-        >
-          ▶
-        </button>
         <span className={`text-xs px-1.5 py-0.5 rounded ${
           p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
         }`}>
@@ -137,6 +114,29 @@ function FolderNode({ node, depth, onNavigate }: {
         <Badge variant="secondary" className="text-xs ml-1">
           {node.running || 0}
         </Badge>
+        {p.path && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(p.path);
+              toast('Path copied!');
+            }}
+            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+            title="Copy path"
+          >
+            📋
+          </button>
+        )}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onNavigate(p.id);
+          }}
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+          title="Open terminal"
+        >
+          ▶
+        </button>
       </div>
     );
   }
@@ -157,6 +157,7 @@ function FolderNode({ node, depth, onNavigate }: {
         </span>
         <span className="text-gray-500">{expanded ? '📂' : '📁'}</span>
         <span className="text-gray-800 text-sm font-medium">{node.name}</span>
+        <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -164,7 +165,7 @@ function FolderNode({ node, depth, onNavigate }: {
             navigator.clipboard.writeText(fullPath);
             toast('Path copied!');
           }}
-          className="text-gray-400 hover:text-emerald-500 transition text-xs opacity-0 group-hover:opacity-100 cursor-pointer"
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
           title="Copy path"
         >
           📋
@@ -177,13 +178,12 @@ function FolderNode({ node, depth, onNavigate }: {
               const first = node.children?.find(c => c.type === 'project');
               if (first?.project) onNavigate(first.project.id);
             }}
-            className="text-gray-400 hover:text-emerald-500 transition text-xs opacity-0 group-hover:opacity-100 cursor-pointer"
+            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
             title="Open terminal"
           >
             ▶
           </button>
         )}
-        <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
       </div>
       {expanded && node.children && (
         <div>
