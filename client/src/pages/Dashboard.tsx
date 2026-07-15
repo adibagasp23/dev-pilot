@@ -10,17 +10,23 @@ export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [countMap, setCountMap] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const typeFilter = searchParams.get('type');
+  const parentFilter = searchParams.get('parent');
 
   useEffect(() => {
     api.getProjects(typeFilter || undefined).then((data) => {
-      setProjects(data.projects);
+      let list = data.projects;
+      if (parentFilter) {
+        const prefix = parentFilter.startsWith('~') ? parentFilter : '~/' + parentFilter;
+        list = list.filter((p: any) => p.name.startsWith(prefix + '/') || p.name === prefix);
+      }
+      setProjects(list);
       setCountMap(data.countMap);
       setLoading(false);
     });
-  }, [typeFilter]);
+  }, [typeFilter, parentFilter]);
 
   const title = !typeFilter
     ? 'All Projects'
@@ -38,6 +44,32 @@ export function Dashboard() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
           <p className="text-gray-500 text-sm">{subtitle}</p>
+          {projects.length > 0 && (
+            <div className="flex gap-2 mt-2 flex-wrap">
+              {Array.from(new Set(projects.map((p: any) => {
+                const parts = p.name.split('/');
+                return parts.slice(0, parts[0] === '~' ? 2 : 1).join('/');
+              }))).sort().map((parent) => (
+                <button
+                  key={parent as string}
+                  onClick={() => {
+                    if (parentFilter === parent) {
+                      setSearchParams(typeFilter ? { type: typeFilter } : {});
+                    } else {
+                      const params: Record<string, string> = { parent: parent as string };
+                      if (typeFilter) params.type = typeFilter;
+                      setSearchParams(params);
+                    }
+                  }}
+                  className={`text-xs px-2 py-1 rounded transition ${
+                    parentFilter === parent ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  }`}
+                >
+                  {parent as string}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <button

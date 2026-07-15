@@ -1,6 +1,17 @@
 // services/process-manager.js
 const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const { getDB } = require('../database/db');
+
+// Logger (same format as index.js)
+const logFile = path.join(__dirname, '..', 'logs', 'app.log');
+function log(level, msg, data) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] [${level}] ${msg}${data ? ' ' + JSON.stringify(data) : ''}`;
+  try { fs.appendFileSync(logFile, line + '\n'); } catch {}
+  try { process.stdout.write(line + '\n'); } catch {}
+}
 
 const runningProcesses = new Map();
 // Store logs per process: { processId: { stdout: [...], stderr: [...] } }
@@ -15,6 +26,7 @@ function pushLine(logs, line) {
 }
 
 async function startProcess(processId) {
+  log('INFO', `startProcess(${processId})`);
   const db = getDB();
   const proc = await db('processes as p')
     .join('projects as pr', 'pr.id', 'p.project_id')
@@ -90,6 +102,7 @@ async function startProcess(processId) {
   });
 
   child.on('error', async (err) => {
+    log('ERROR', `Process error (${processId})`, { message: err.message });
     runningProcesses.delete(processId);
     const logs = processLogs.get(processId);
     if (logs) pushLine(logs, { s: 'i', t: `\n⚠ Failed to start: ${err.message}\n` });
@@ -131,6 +144,7 @@ function clearLogs(processId) {
 }
 
 async function stopProcess(processId) {
+  log('INFO', `stopProcess(${processId})`);
   const db = getDB();
   const proc = await db('processes').where('id', processId).first();
 

@@ -9,6 +9,8 @@ const { startProcess, stopProcess, sendInput, getLogs, clearLogs } = require('..
 router.get('/projects', async (req, res) => {
   const db = getDB();
   const typeFilter = req.query.type;
+  const grouped = req.query.grouped === 'true';
+
   let projects;
   if (typeFilter === 'app') {
     projects = await db('projects').whereIn('type', ['flutter', 'laravel']).orderBy('name');
@@ -25,6 +27,20 @@ router.get('/projects', async (req, res) => {
     .count('* as cnt');
   const countMap = {};
   for (const row of runningCounts) countMap[row.project_id] = row.cnt;
+
+  if (grouped) {
+    const groups = {};
+    const ungrouped = [];
+    for (const p of projects) {
+      if (p.group_name) {
+        if (!groups[p.group_name]) groups[p.group_name] = { name: p.group_name, projects: [] };
+        groups[p.group_name].projects.push(p);
+      } else {
+        ungrouped.push(p);
+      }
+    }
+    return res.json({ groups: Object.values(groups), ungrouped, countMap });
+  }
 
   res.json({ projects, countMap });
 });

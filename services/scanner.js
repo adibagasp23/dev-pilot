@@ -1,7 +1,17 @@
 // services/scanner.js
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const { getDB } = require('../database/db');
+
+const HOME_DIR = os.homedir();
+
+function toRelativePath(absPath) {
+  if (absPath.startsWith(HOME_DIR)) {
+    return '~' + absPath.slice(HOME_DIR.length);
+  }
+  return absPath;
+}
 
 function detectProjectType(folderPath) {
   const files = fs.readdirSync(folderPath);
@@ -34,15 +44,19 @@ async function scanFolder(folderPath) {
     const type = detectProjectType(fullPath);
     if (type === 'other') continue;
 
+    // Project name = relative path from home (~/...) or full path if outside home
+    const relativeName = toRelativePath(fullPath);
+    const groupName = path.basename(absPath);
+
     const existing = await db('projects').where('path', fullPath).first();
     if (existing) {
-      await db('projects').where('id', existing.id).update({ last_scanned: db.fn.now() });
-      found.push({ id: existing.id, name: entry.name, path: fullPath, type });
+      await db('projects').where('id', existing.id).update({ name: relativeName, last_scanned: db.fn.now(), group_name: groupName });
+      found.push({ id: existing.id, name: relativeName, path: fullPath, type });
     } else {
       const [id] = await db('projects').insert({
-        name: entry.name, path: fullPath, type, scan_folder_id: scanFolderId,
+        name: relativeName, path: fullPath, type, scan_folder_id: scanFolderId, group_name: groupName,
       });
-      found.push({ id, name: entry.name, path: fullPath, type });
+      found.push({ id, name: relativeName, path: fullPath, type });
     }
   }
 
