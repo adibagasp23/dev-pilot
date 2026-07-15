@@ -6,7 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '../components/Snackbar';
 
 // ----- Inline Terminal Component -----
-function InlineTerminal({ projectId, onClose }: { projectId: number; onClose: () => void }) {
+function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath: string; projectId: number; onClose: () => void }) {
   const [lines, setLines] = useState<string>('');
   const [input, setInput] = useState('');
   const [procId, setProcId] = useState<number | null>(null);
@@ -173,12 +173,11 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
   return root;
 }
 
-function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTerminal }: {
+function FolderNode({ node, depth, onToggleTerminal, terminalPaths }: {
   node: TreeNode;
   depth: number;
-  onStartTerminal: (projectId: number) => void;
-  openTerminals: Set<number>;
-  onCloseTerminal: (projectId: number) => void;
+  onToggleTerminal: (path: string) => void;
+  terminalPaths: Set<string>;
 }) {
   const [expanded, setExpanded] = useState(node.expanded || false);
 
@@ -188,7 +187,7 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
 
   if (node.type === 'project' && node.project) {
     const p = node.project;
-    const isOpen = openTerminals.has(p.id);
+    const isTerminalOpen = terminalPaths.has(node.path);
     return (
       <div>
         <div
@@ -197,7 +196,7 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
           <span className="text-gray-400 text-sm w-4">
             {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
           </span>
-          <span className={`text-gray-700 text-sm truncate ${isOpen ? 'text-emerald-600 font-medium' : ''}`}>{node.name}</span>
+          <span className={`text-gray-700 text-sm truncate ${isTerminalOpen ? 'text-emerald-600 font-medium' : ''}`}>{node.name}</span>
           {p.path && (
             <button
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(p.path); toast('Path copied!'); }}
@@ -208,11 +207,11 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
             </button>
           )}
           <button
-            onClick={(e) => { e.stopPropagation(); onStartTerminal(p.id); }}
-            className={`text-xs ml-1 cursor-pointer transition ${isOpen ? 'text-emerald-500' : 'text-gray-400 hover:text-emerald-500'}`}
-            title={isOpen ? 'Close terminal' : 'Start terminal'}
+            onClick={(e) => { e.stopPropagation(); onToggleTerminal(node.path); }}
+            className={`text-xs ml-1 cursor-pointer transition ${isTerminalOpen ? 'text-emerald-500' : 'text-gray-400 hover:text-emerald-500'}`}
+            title={isTerminalOpen ? 'Close terminal' : 'Start terminal'}
           >
-            {isOpen ? '⏹' : '▶'}
+            {isTerminalOpen ? '⏹' : '▶'}
           </button>
           <span className={`text-xs px-1.5 py-0.5 rounded ${
             p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
@@ -220,8 +219,8 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
             {p.type === 'agent' ? 'AGENT' : p.type === 'next' ? 'Next.js' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
           </span>
         </div>
-        {isOpen && (
-          <InlineTerminal projectId={p.id} onClose={() => onCloseTerminal(p.id)} />
+        {isTerminalOpen && (
+          <InlineTerminal nodePath={node.path} projectId={p.id} onClose={() => onToggleTerminal(node.path)} />
         )}
       </div>
     );
@@ -230,11 +229,21 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
   // Folder node
   const count = node.children?.filter(c => c.type === 'project').length || 0;
   const totalChildren = node.children?.length || 0;
+  const isTerminalOpen = terminalPaths.has(node.path);
 
-  const handleFolderTerminal = () => {
-    const first = node.children?.find(c => c.type === 'project');
-    if (first?.project) onStartTerminal(first.project.id);
+  // Find first project inside folder for terminal
+  let firstProjectId: number | null = null;
+  const findFirst = (nodes: TreeNode[]): number | null => {
+    for (const n of nodes) {
+      if (n.type === 'project' && n.project) return n.project.id;
+      if (n.children) {
+        const found = findFirst(n.children);
+        if (found) return found;
+      }
+    }
+    return null;
   };
+  if (node.children) firstProjectId = findFirst(node.children);
 
   return (
     <div>
@@ -247,7 +256,7 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
           ▶
         </span>
         <span className="text-gray-500">{expanded ? '📂' : '📁'}</span>
-        <span className="text-gray-800 text-sm font-medium">{node.name}</span>
+        <span className={`text-gray-800 text-sm font-medium ${isTerminalOpen ? 'text-emerald-600' : ''}`}>{node.name}</span>
         <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
         <button
           onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(node.path); toast('Path copied!'); }}
@@ -256,16 +265,17 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
         >
           📋
         </button>
-        {node.children && (
-          <button
-            onClick={(e) => { e.stopPropagation(); handleFolderTerminal(); }}
-            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
-            title="Start terminal"
-          >
-            ▶
-          </button>
-        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); if (firstProjectId) onToggleTerminal(node.path); }}
+          className={`text-xs ml-1 cursor-pointer transition ${isTerminalOpen ? 'text-emerald-500' : 'text-gray-400 hover:text-emerald-500'}`}
+          title="Start terminal"
+        >
+          {isTerminalOpen ? '⏹' : '▶'}
+        </button>
       </div>
+      {isTerminalOpen && firstProjectId && (
+        <InlineTerminal nodePath={node.path} projectId={firstProjectId} onClose={() => onToggleTerminal(node.path)} />
+      )}
       {expanded && node.children && (
         <div>
           {node.children.map((child) => (
@@ -273,9 +283,8 @@ function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTermin
               key={child.path}
               node={child}
               depth={depth + 1}
-              onStartTerminal={onStartTerminal}
-              openTerminals={openTerminals}
-              onCloseTerminal={onCloseTerminal}
+              onToggleTerminal={onToggleTerminal}
+              terminalPaths={terminalPaths}
             />
           ))}
           {totalChildren === 0 && (
@@ -291,7 +300,7 @@ export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [countMap, setCountMap] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
-  const [openTerminals, setOpenTerminals] = useState<Set<number>>(new Set());
+  const [openTerminals, setOpenTerminals] = useState<Set<string>>(new Set());
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const typeFilter = searchParams.get('type');
@@ -304,23 +313,15 @@ export function Dashboard() {
     });
   }, [typeFilter]);
 
-  const handleStartTerminal = useCallback((projectId: number) => {
+  const handleToggleTerminal = useCallback((path: string) => {
     setOpenTerminals((prev) => {
-      if (prev.has(projectId)) {
+      if (prev.has(path)) {
         const next = new Set(prev);
-        next.delete(projectId);
+        next.delete(path);
         return next;
       }
       const next = new Set(prev);
-      next.add(projectId);
-      return next;
-    });
-  }, []);
-
-  const handleCloseTerminal = useCallback((projectId: number) => {
-    setOpenTerminals((prev) => {
-      const next = new Set(prev);
-      next.delete(projectId);
+      next.add(path);
       return next;
     });
   }, []);
@@ -382,9 +383,8 @@ export function Dashboard() {
                 key={node.path}
                 node={node}
                 depth={0}
-                onStartTerminal={handleStartTerminal}
-                openTerminals={openTerminals}
-                onCloseTerminal={handleCloseTerminal}
+                onToggleTerminal={handleToggleTerminal}
+                terminalPaths={openTerminals}
               />
             ))}
           </CardContent>
