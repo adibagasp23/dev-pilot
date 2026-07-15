@@ -3,6 +3,7 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getDB } = require('../database/db');
+const stripAnsi = require('strip-ansi').default;
 
 // Logger (same format as index.js)
 const logFile = path.join(__dirname, '..', 'logs', 'app.log');
@@ -47,6 +48,10 @@ async function startProcess(processId) {
 
   // Dynamic fvm detection: if command starts with 'flutter'
   let command = proc.command;
+  if (command === 'pi') {
+    // Use unbuffer (from expect) to create a PTY for TUI apps
+    command = 'unbuffer pi';
+  }
   if (command.startsWith('flutter') && !command.startsWith('fvm ')) {
     const { execSync } = require('child_process');
     try {
@@ -75,12 +80,12 @@ async function startProcess(processId) {
 
   child.stdout.on('data', (data) => {
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'o', t: data.toString() });
+    if (logs) pushLine(logs, { s: 'o', t: stripAnsi(data.toString()) });
   });
 
   child.stderr.on('data', (data) => {
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'e', t: data.toString() });
+    if (logs) pushLine(logs, { s: 'e', t: stripAnsi(data.toString()) });
   });
 
   await db('processes').where('id', processId).update({
