@@ -121,7 +121,7 @@ function FolderNode({ node, depth, onNavigate }: {
               navigator.clipboard.writeText(p.path);
               toast('Path copied!');
             }}
-            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
             title="Copy path"
           >
             📋
@@ -132,7 +132,7 @@ function FolderNode({ node, depth, onNavigate }: {
             e.stopPropagation();
             onNavigate(p.id);
           }}
-          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
           title="Open terminal"
         >
           ▶
@@ -165,7 +165,7 @@ function FolderNode({ node, depth, onNavigate }: {
             navigator.clipboard.writeText(fullPath);
             toast('Path copied!');
           }}
-          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
           title="Copy path"
         >
           📋
@@ -178,7 +178,7 @@ function FolderNode({ node, depth, onNavigate }: {
               const first = node.children?.find(c => c.type === 'project');
               if (first?.project) onNavigate(first.project.id);
             }}
-            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
             title="Open terminal"
           >
             ▶
