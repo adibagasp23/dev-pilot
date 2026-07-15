@@ -1,11 +1,110 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Project } from '../types';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '../components/Snackbar';
 
-// Tree node types
+// ----- Inline Terminal Component -----
+function InlineTerminal({ projectId, onClose }: { projectId: number; onClose: () => void }) {
+  const [lines, setLines] = useState<string>('');
+  const [input, setInput] = useState('');
+  const [procId, setProcId] = useState<number | null>(null);
+  const [status, setStatus] = useState<string>('starting');
+  const preRef = useRef<HTMLPreElement>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Start process on mount
+  useEffect(() => {
+    api.getProject(projectId).then((data) => {
+      if (data.processes.length > 0) {
+        const first = data.processes[0];
+        api.startProcess(first.id).then(() => {
+          setProcId(first.id);
+          setStatus('running');
+        }).catch(() => {
+          setStatus('stopped');
+        });
+      }
+    });
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [projectId]);
+
+  // Poll logs
+  useEffect(() => {
+    if (!procId) return;
+    pollRef.current = setInterval(() => {
+      api.getLogs(procId).then((logData) => {
+        const all = logData.lines.map(l => l.t).join('');
+        setLines(all || 'Waiting for output...');
+        if (logData.status) setStatus(logData.status);
+        // Auto-scroll
+        if (preRef.current) {
+          preRef.current.scrollTop = preRef.current.scrollHeight;
+        }
+      });
+    }, 2000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [procId]);
+
+  const sendInput = () => {
+    if (!procId) return;
+    api.sendInput(procId, input + '\n').catch(() => {});
+    setInput('');
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') sendInput();
+  };
+
+  return (
+    <div className="ml-12 mb-2 border border-gray-700 rounded-lg overflow-hidden" style={{ background: '#0d1117' }}>
+      <div className="flex items-center justify-between px-3 py-1.5" style={{ background: '#161b22', borderBottom: '1px solid #30363d' }}>
+        <span className="text-xs text-gray-400">
+          {status === 'running' ? '🟢' : '🔴'} Terminal
+        </span>
+        <button
+          onClick={onClose}
+          className="text-xs text-gray-500 hover:text-red-400 transition"
+        >
+          ✕
+        </button>
+      </div>
+      <pre
+        ref={preRef}
+        className="text-xs p-3 overflow-auto max-h-48 min-h-[6rem] font-mono leading-relaxed select-text"
+        style={{ color: '#4ade80', background: '#0d1117' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {lines || 'Starting...'}
+      </pre>
+      <div className="flex items-center gap-2 px-3 py-2 border-t border-gray-700" style={{ background: '#0d1117' }}>
+        <span className="text-green-400 text-xs">❯</span>
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="flex-1 bg-transparent text-green-400 text-xs outline-none border-none font-mono"
+          placeholder="Type command..."
+          onClick={(e) => e.stopPropagation()}
+        />
+        <button
+          onClick={(e) => { e.stopPropagation(); sendInput(); }}
+          className="text-xs px-2 py-0.5 rounded hover:bg-gray-700 transition"
+          style={{ color: '#4ade80', border: '1px solid #4ade80' }}
+        >
+          Kirim
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ----- Tree -----
 type TreeNode = {
   type: 'folder' | 'project';
   name: string;
@@ -31,7 +130,6 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
       currentPath += part;
 
       if (i === parts.length - 1) {
-        // Last segment = project
         current.push({
           type: 'project',
           name: part,
@@ -40,7 +138,6 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
           running: countMap[p.id] || 0,
         });
       } else {
-        // Folder segment
         let folder = map[currentPath];
         if (!folder) {
           folder = {
@@ -58,7 +155,6 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
     }
   }
 
-  // Sort: folders first, then projects, alphabetically
   const sortNodes = (nodes: TreeNode[]) => {
     nodes.sort((a, b) => {
       if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
@@ -70,7 +166,6 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
   };
   sortNodes(root);
 
-  // Expand root-level folders by default
   for (const n of root) {
     if (n.type === 'folder') n.expanded = true;
   }
@@ -78,10 +173,12 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
   return root;
 }
 
-function FolderNode({ node, depth, onNavigate }: {
+function FolderNode({ node, depth, onStartTerminal, openTerminals, onCloseTerminal }: {
   node: TreeNode;
   depth: number;
-  onNavigate: (id: number, autoStart?: boolean) => void;
+  onStartTerminal: (projectId: number) => void;
+  openTerminals: Set<number>;
+  onCloseTerminal: (projectId: number) => void;
 }) {
   const [expanded, setExpanded] = useState(node.expanded || false);
 
@@ -91,43 +188,41 @@ function FolderNode({ node, depth, onNavigate }: {
 
   if (node.type === 'project' && node.project) {
     const p = node.project;
+    const isOpen = openTerminals.has(p.id);
     return (
-      <div
-        className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer group transition ml-6"
-        onClick={() => onNavigate(p.id)}
-      >
-        <span className="text-gray-400 text-sm w-4">
-          {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
-        </span>
-        <span className="text-gray-700 text-sm truncate">{node.name}</span>
-        {p.path && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              navigator.clipboard.writeText(p.path);
-              toast('Path copied!');
-            }}
-            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
-            title="Copy path"
-          >
-            📋
-          </button>
-        )}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onNavigate(p.id, true);
-          }}
-          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
-          title="Start terminal"
+      <div>
+        <div
+          className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-100 group transition ml-6"
         >
-          ▶
-        </button>
-        <span className={`text-xs px-1.5 py-0.5 rounded ${
-          p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
-        }`}>
-          {p.type === 'agent' ? 'AGENT' : p.type === 'next' ? 'Next.js' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
-        </span>
+          <span className="text-gray-400 text-sm w-4">
+            {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
+          </span>
+          <span className={`text-gray-700 text-sm truncate ${isOpen ? 'text-emerald-600 font-medium' : ''}`}>{node.name}</span>
+          {p.path && (
+            <button
+              onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(p.path); toast('Path copied!'); }}
+              className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
+              title="Copy path"
+            >
+              📋
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onStartTerminal(p.id); }}
+            className={`text-xs ml-1 cursor-pointer transition ${isOpen ? 'text-emerald-500' : 'text-gray-400 hover:text-emerald-500'}`}
+            title={isOpen ? 'Close terminal' : 'Start terminal'}
+          >
+            {isOpen ? '⏹' : '▶'}
+          </button>
+          <span className={`text-xs px-1.5 py-0.5 rounded ${
+            p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
+          }`}>
+            {p.type === 'agent' ? 'AGENT' : p.type === 'next' ? 'Next.js' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
+          </span>
+        </div>
+        {isOpen && (
+          <InlineTerminal projectId={p.id} onClose={() => onCloseTerminal(p.id)} />
+        )}
       </div>
     );
   }
@@ -136,10 +231,15 @@ function FolderNode({ node, depth, onNavigate }: {
   const count = node.children?.filter(c => c.type === 'project').length || 0;
   const totalChildren = node.children?.length || 0;
 
+  const handleFolderTerminal = () => {
+    const first = node.children?.find(c => c.type === 'project');
+    if (first?.project) onStartTerminal(first.project.id);
+  };
+
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer group transition"
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-100 group transition"
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={toggle}
       >
@@ -150,12 +250,7 @@ function FolderNode({ node, depth, onNavigate }: {
         <span className="text-gray-800 text-sm font-medium">{node.name}</span>
         <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            const fullPath = node.path;
-            navigator.clipboard.writeText(fullPath);
-            toast('Path copied!');
-          }}
+          onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(node.path); toast('Path copied!'); }}
           className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
           title="Copy path"
         >
@@ -163,12 +258,7 @@ function FolderNode({ node, depth, onNavigate }: {
         </button>
         {node.children && (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              // Navigate to first project inside
-              const first = node.children?.find(c => c.type === 'project');
-              if (first?.project) onNavigate(first.project.id, true);
-            }}
+            onClick={(e) => { e.stopPropagation(); handleFolderTerminal(); }}
             className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
             title="Start terminal"
           >
@@ -179,7 +269,14 @@ function FolderNode({ node, depth, onNavigate }: {
       {expanded && node.children && (
         <div>
           {node.children.map((child) => (
-            <FolderNode key={child.path} node={child} depth={depth + 1} onNavigate={onNavigate} />
+            <FolderNode
+              key={child.path}
+              node={child}
+              depth={depth + 1}
+              onStartTerminal={onStartTerminal}
+              openTerminals={openTerminals}
+              onCloseTerminal={onCloseTerminal}
+            />
           ))}
           {totalChildren === 0 && (
             <div className="text-xs text-gray-400 italic ml-8 py-1">(empty)</div>
@@ -194,6 +291,7 @@ export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [countMap, setCountMap] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
+  const [openTerminals, setOpenTerminals] = useState<Set<number>>(new Set());
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const typeFilter = searchParams.get('type');
@@ -205,6 +303,27 @@ export function Dashboard() {
       setLoading(false);
     });
   }, [typeFilter]);
+
+  const handleStartTerminal = useCallback((projectId: number) => {
+    setOpenTerminals((prev) => {
+      if (prev.has(projectId)) {
+        const next = new Set(prev);
+        next.delete(projectId);
+        return next;
+      }
+      const next = new Set(prev);
+      next.add(projectId);
+      return next;
+    });
+  }, []);
+
+  const handleCloseTerminal = useCallback((projectId: number) => {
+    setOpenTerminals((prev) => {
+      const next = new Set(prev);
+      next.delete(projectId);
+      return next;
+    });
+  }, []);
 
   const title = !typeFilter
     ? 'All Projects'
@@ -263,7 +382,9 @@ export function Dashboard() {
                 key={node.path}
                 node={node}
                 depth={0}
-                onNavigate={(id, autoStart) => navigate(`/project/${id}${autoStart ? '?autoStart=true' : ''}`)}
+                onStartTerminal={handleStartTerminal}
+                openTerminals={openTerminals}
+                onCloseTerminal={handleCloseTerminal}
               />
             ))}
           </CardContent>
