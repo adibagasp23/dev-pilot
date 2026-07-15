@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Project } from '../types';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { toast } from '../components/Snackbar';
 
 // Tree node types
@@ -100,20 +99,7 @@ function FolderNode({ node, depth, onNavigate }: {
         <span className="text-gray-400 text-sm w-4">
           {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
         </span>
-        <span className="text-gray-700 text-sm truncate flex-1">{node.name}</span>
-        <span className={`text-xs px-1.5 py-0.5 rounded ${
-          p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
-        }`}>
-          {p.type === 'agent' ? 'AGENT' : p.type === 'next' ? 'Next.js' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
-        </span>
-        {p.path && (
-          <span className="text-xs text-gray-400 hidden group-hover:inline ml-1 truncate max-w-[200px]">
-            {p.path.replace('/Users/adibagaspratama', '~')}
-          </span>
-        )}
-        <Badge variant="secondary" className="text-xs ml-1">
-          {node.running || 0}
-        </Badge>
+        <span className="text-gray-700 text-sm truncate">{node.name}</span>
         {p.path && (
           <button
             onClick={(e) => {
@@ -137,6 +123,11 @@ function FolderNode({ node, depth, onNavigate }: {
         >
           ▶
         </button>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${
+          p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'next' ? 'text-gray-600 bg-gray-100' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
+        }`}>
+          {p.type === 'agent' ? 'AGENT' : p.type === 'next' ? 'Next.js' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
+        </span>
       </div>
     );
   }

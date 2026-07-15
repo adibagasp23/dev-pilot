@@ -21,8 +21,8 @@ function detectProjectType(folderPath) {
   return 'other';
 }
 
-async function addProject(db, fullPath, type, scanFolderId, scanAbsPath, found) {
-  const relativeName = toRelativePath(fullPath);
+async function addProject(db, fullPath, type, scanFolderId, scanAbsPath, found, flatName) {
+  const relativeName = flatName || toRelativePath(fullPath);
   const groupName = path.basename(scanAbsPath);
   const existing = await db('projects').where('path', fullPath).first();
   if (existing) {
@@ -69,7 +69,9 @@ async function scanFolder(folderPath) {
         const subPath = path.join(fullPath, sub.name);
         const subType = detectProjectType(subPath);
         if (subType !== 'other') {
-          await addProject(db, subPath, subType, scanFolderId, absPath, found);
+          // Flatten name: name = ~/scanFolderBase/subName instead of ~/scanFolderBase/intermediate/subName
+          const flatName = toRelativePath(path.join(absPath, sub.name));
+          await addProject(db, subPath, subType, scanFolderId, absPath, found, flatName);
         }
       }
     }
