@@ -81,7 +81,7 @@ function buildTree(projects: Project[], countMap: Record<number, number>): TreeN
 function FolderNode({ node, depth, onNavigate }: {
   node: TreeNode;
   depth: number;
-  onNavigate: (id: number) => void;
+  onNavigate: (id: number, autoStart?: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(node.expanded || false);
 
@@ -116,10 +116,10 @@ function FolderNode({ node, depth, onNavigate }: {
         <button
           onClick={(e) => {
             e.stopPropagation();
-            onNavigate(p.id);
+            onNavigate(p.id, true);
           }}
           className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
-          title="Open terminal"
+          title="Start terminal"
         >
           ▶
         </button>
@@ -167,10 +167,10 @@ function FolderNode({ node, depth, onNavigate }: {
               e.stopPropagation();
               // Navigate to first project inside
               const first = node.children?.find(c => c.type === 'project');
-              if (first?.project) onNavigate(first.project.id);
+              if (first?.project) onNavigate(first.project.id, true);
             }}
             className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
-            title="Open terminal"
+            title="Start terminal"
           >
             ▶
           </button>
@@ -263,7 +263,7 @@ export function Dashboard() {
                 key={node.path}
                 node={node}
                 depth={0}
-                onNavigate={(id) => navigate(`/project/${id}`)}
+                onNavigate={(id, autoStart) => navigate(`/project/${id}${autoStart ? '?autoStart=true' : ''}`)}
               />
             ))}
           </CardContent>

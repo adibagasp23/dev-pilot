@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Project, Process } from '../types';
 import { Card, CardContent } from '@/components/ui/card';
@@ -11,6 +11,7 @@ import TerminalInput from '../components/TerminalInput';
 
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const [project, setProject] = useState<Project | null>(null);
   const [processes, setProcesses] = useState<Process[]>([]);
   const [label, setLabel] = useState('');
@@ -31,6 +32,15 @@ export function ProjectDetail() {
       setProject(data.project);
       setProcesses(data.processes);
       processesRef.current = data.processes;
+
+      // Auto-start if ?autoStart=true
+      if (searchParams.get('autoStart') === 'true' && data.processes.length > 0) {
+        const firstProc = data.processes[0];
+        api.startProcess(firstProc.id).then(() => {
+          setOpenLogs((prev) => ({ ...prev, [firstProc.id]: true }));
+          load(); // reload to get running status
+        }).catch(() => {});
+      }
 
       // Auto-open log for running processes
       const running = data.processes.filter((p: Process) => p.status === 'running');
