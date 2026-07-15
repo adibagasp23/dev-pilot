@@ -170,6 +170,20 @@ function FolderNode({ node, depth, onNavigate }: {
         >
           📋
         </button>
+        {node.children?.some(c => c.type === 'project') && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              // Navigate to first project inside
+              const first = node.children?.find(c => c.type === 'project');
+              if (first?.project) onNavigate(first.project.id);
+            }}
+            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+            title="Open terminal"
+          >
+            ▶
+          </button>
+        )}
       </div>
       {expanded && node.children && (
         <div>
