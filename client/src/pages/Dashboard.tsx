@@ -28,8 +28,14 @@ function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath:
       api.startProcess(piProc.id).then(() => {
         setProcId(piProc.id);
         setStatus('running');
-      }).catch(() => {
-        setStatus('stopped');
+      }).catch((err) => {
+        // If already running, use it anyway
+        if (err.message?.includes('already running')) {
+          setProcId(piProc.id);
+          setStatus('running');
+        } else {
+          setStatus('stopped');
+        }
       });
     });
     return () => { cancelled = true; if (pollRef.current) clearInterval(pollRef.current); };
