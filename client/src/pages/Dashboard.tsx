@@ -14,22 +14,25 @@ function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath:
   const preRef = useRef<HTMLPreElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Start process on mount
+  // Start pi on mount
   useEffect(() => {
-    api.getProject(projectId).then((data) => {
-      if (data.processes.length > 0) {
-        const first = data.processes[0];
-        api.startProcess(first.id).then(() => {
-          setProcId(first.id);
-          setStatus('running');
-        }).catch(() => {
-          setStatus('stopped');
-        });
+    let cancelled = false;
+    api.getProject(projectId).then(async (data) => {
+      if (cancelled) return;
+      // Find or create a pi process
+      let piProc = data.processes.find((p: any) => p.label === 'Pi Terminal');
+      if (!piProc) {
+        piProc = await api.addProcess(projectId, 'Pi Terminal', 'pi');
       }
+      if (cancelled) return;
+      api.startProcess(piProc.id).then(() => {
+        setProcId(piProc.id);
+        setStatus('running');
+      }).catch(() => {
+        setStatus('stopped');
+      });
     });
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+    return () => { cancelled = true; if (pollRef.current) clearInterval(pollRef.current); };
   }, [projectId]);
 
   // Poll logs
@@ -38,8 +41,14 @@ function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath:
     pollRef.current = setInterval(() => {
       api.getLogs(procId).then((logData) => {
         const all = logData.lines.map(l => l.t).join('');
-        setLines(all || 'Waiting for output...');
         if (logData.status) setStatus(logData.status);
+        if (all) {
+          setLines(all);
+        } else if (logData.status === 'running') {
+          setLines('Pi is running. Type a command below and press Enter.\n');
+        } else {
+          setLines('');
+        }
         // Auto-scroll
         if (preRef.current) {
           preRef.current.scrollTop = preRef.current.scrollHeight;
@@ -61,6 +70,13 @@ function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath:
     if (e.key === 'Enter') sendInput();
   };
 
+  const handleClose = () => {
+    if (procId) {
+      api.stopProcess(procId).catch(() => {});
+    }
+    onClose();
+  };
+
   return (
     <div className="ml-12 mb-2 border border-gray-700 rounded-lg overflow-hidden" style={{ background: '#0d1117' }}>
       <div className="flex items-center justify-between px-3 py-1.5" style={{ background: '#161b22', borderBottom: '1px solid #30363d' }}>
@@ -68,7 +84,7 @@ function InlineTerminal({ nodePath: _nodePath, projectId, onClose }: { nodePath:
           {status === 'running' ? '🟢' : '🔴'} Terminal
         </span>
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="text-xs text-gray-500 hover:text-red-400 transition"
         >
           ✕
