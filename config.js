@@ -7,7 +7,7 @@ module.exports = {
   // Database — ganti client & connection buat pake PostgreSQL/MySQL
   database: {
     client: process.env.DB_CLIENT || 'better-sqlite3',
-    connection: process.env.DB_CLIENT === 'better-sqlite3'
+    connection: (process.env.DB_CLIENT || 'better-sqlite3') === 'better-sqlite3'
       ? { filename: path.join(__dirname, 'database', 'process-manager.db') }
       : {
           host: process.env.DB_HOST || 'localhost',
