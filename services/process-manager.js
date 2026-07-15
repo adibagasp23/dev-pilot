@@ -3,7 +3,6 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getDB } = require('../database/db');
-const stripAnsi = require('strip-ansi').default;
 
 // Logger (same format as index.js)
 const logFile = path.join(__dirname, '..', 'logs', 'app.log');
@@ -12,6 +11,38 @@ function log(level, msg, data) {
   const line = `[${ts}] [${level}] ${msg}${data ? ' ' + JSON.stringify(data) : ''}`;
   try { fs.appendFileSync(logFile, line + '\n'); } catch {}
   try { process.stdout.write(line + '\n'); } catch {}
+}
+
+function makeAnsiStripper() {
+  let buf = '';
+  return (chunk) => {
+    buf += chunk;
+    // Strip all escape sequences more aggressively
+    // Remove OSC 8 hyperlinks: \u001b]8;;...\u0007
+    buf = buf.replace(/\u001b\]8;;[^\u0007]*\u0007/g, '');
+    // Remove other OSC sequences: \u001b]...\u0007 or \u001b]...\u001b\\
+    buf = buf.replace(/\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)/g, '');
+    // Remove complete CSI sequences: \u001b[<params><letter>
+    buf = buf.replace(/\u001b\[[0-9;]*[a-zA-Z]/g, '');
+    // Remove private sequences: \u001b[?<params><letter>, \u001b[><params><letter>
+    buf = buf.replace(/\u001b\[\?[0-9;]*[a-zA-Z]/g, '');
+    buf = buf.replace(/\u001b\[>[0-9;]*[a-zA-Z]/g, '');
+    // Remove single-char escapes: \u001b<letter>
+    buf = buf.replace(/\u001b[a-zA-Z]/g, '');
+    // Remove \u0007 (BEL) characters
+    buf = buf.replace(/\u0007/g, '');
+    // Return the clean buffer and reset
+    const result = buf;
+    buf = '';
+    // But keep any incomplete escape for next chunk
+    const escIdx = result.lastIndexOf('\u001b');
+    if (escIdx >= 0 && result.slice(escIdx).length < 20) {
+      // Might be incomplete
+      buf = result.slice(escIdx);
+      return result.slice(0, escIdx);
+    }
+    return result;
+  };
 }
 
 const runningProcesses = new Map();
@@ -77,15 +108,16 @@ async function startProcess(processId) {
 
   // Init log buffer — combined lines with stream marker
   processLogs.set(processId, { lines: [] });
+  const stripper = makeAnsiStripper();
 
   child.stdout.on('data', (data) => {
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'o', t: stripAnsi(data.toString()) });
+    if (logs) pushLine(logs, { s: 'o', t: stripper(data.toString()) });
   });
 
   child.stderr.on('data', (data) => {
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'e', t: stripAnsi(data.toString()) });
+    if (logs) pushLine(logs, { s: 'e', t: stripper(data.toString()) });
   });
 
   await db('processes').where('id', processId).update({
