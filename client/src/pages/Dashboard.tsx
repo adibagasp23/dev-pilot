@@ -1,32 +1,183 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Project } from '../types';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { toast } from '../components/Snackbar';
+
+// Tree node types
+type TreeNode = {
+  type: 'folder' | 'project';
+  name: string;
+  path: string;
+  project?: Project;
+  children?: TreeNode[];
+  running?: number;
+  expanded?: boolean;
+};
+
+function buildTree(projects: Project[], countMap: Record<number, number>): TreeNode[] {
+  const root: TreeNode[] = [];
+  const map: Record<string, TreeNode> = {};
+
+  for (const p of projects) {
+    const parts = p.name.split('/');
+    let current = root;
+    let currentPath = '';
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      if (currentPath) currentPath += '/';
+      currentPath += part;
+
+      if (i === parts.length - 1) {
+        // Last segment = project
+        current.push({
+          type: 'project',
+          name: part,
+          path: currentPath,
+          project: p,
+          running: countMap[p.id] || 0,
+        });
+      } else {
+        // Folder segment
+        let folder = map[currentPath];
+        if (!folder) {
+          folder = {
+            type: 'folder',
+            name: part,
+            path: currentPath,
+            children: [],
+            expanded: false,
+          };
+          map[currentPath] = folder;
+          current.push(folder);
+        }
+        current = folder.children!;
+      }
+    }
+  }
+
+  // Sort: folders first, then projects, alphabetically
+  const sortNodes = (nodes: TreeNode[]) => {
+    nodes.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const n of nodes) {
+      if (n.children) sortNodes(n.children);
+    }
+  };
+  sortNodes(root);
+
+  // Expand root-level folders by default
+  for (const n of root) {
+    if (n.type === 'folder') n.expanded = true;
+  }
+
+  return root;
+}
+
+function FolderNode({ node, depth, onNavigate }: {
+  node: TreeNode;
+  depth: number;
+  onNavigate: (id: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(node.expanded || false);
+
+  const toggle = useCallback(() => {
+    setExpanded(!expanded);
+  }, [expanded]);
+
+  if (node.type === 'project' && node.project) {
+    const p = node.project;
+    return (
+      <div
+        className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer group transition ml-6"
+        onClick={() => onNavigate(p.id)}
+      >
+        <span className="text-gray-400 text-sm w-4">
+          {p.type === 'flutter' ? '🔵' : p.type === 'laravel' ? '🟠' : '🟣'}
+        </span>
+        <span className="text-gray-700 text-sm truncate flex-1">{node.name}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${
+          p.type === 'flutter' ? 'text-blue-600 bg-blue-50' : p.type === 'laravel' ? 'text-orange-600 bg-orange-50' : 'text-purple-600 bg-purple-50'
+        }`}>
+          {p.type === 'agent' ? 'AGENT' : p.type.charAt(0).toUpperCase() + p.type.slice(1)}
+        </span>
+        {p.path && (
+          <span className="text-xs text-gray-400 hidden group-hover:inline ml-1 truncate max-w-[200px]">
+            {p.path.replace('/Users/adibagaspratama', '~')}
+          </span>
+        )}
+        <Badge variant="secondary" className="text-xs ml-1">
+          {node.running || 0}
+        </Badge>
+        {p.path && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(p.path);
+              toast('Path copied!');
+            }}
+            className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 opacity-0 group-hover:opacity-100 cursor-pointer"
+            title="Copy path"
+          >
+            📋
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Folder node
+  const count = node.children?.filter(c => c.type === 'project').length || 0;
+  const totalChildren = node.children?.length || 0;
+
+  return (
+    <div>
+      <div
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer transition"
+        style={{ paddingLeft: `${depth * 12 + 8}px` }}
+        onClick={toggle}
+      >
+        <span className="text-gray-400 text-sm w-4 transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : '' }}>
+          ▶
+        </span>
+        <span className="text-gray-500">{expanded ? '📂' : '📁'}</span>
+        <span className="text-gray-800 text-sm font-medium">{node.name}</span>
+        <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
+      </div>
+      {expanded && node.children && (
+        <div>
+          {node.children.map((child) => (
+            <FolderNode key={child.path} node={child} depth={depth + 1} onNavigate={onNavigate} />
+          ))}
+          {totalChildren === 0 && (
+            <div className="text-xs text-gray-400 italic ml-8 py-1">(empty)</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [countMap, setCountMap] = useState<Record<number, number>>({});
   const [loading, setLoading] = useState(true);
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const typeFilter = searchParams.get('type');
-  const parentFilter = searchParams.get('parent');
 
   useEffect(() => {
     api.getProjects(typeFilter || undefined).then((data) => {
-      let list = data.projects;
-      if (parentFilter) {
-        const prefix = parentFilter.startsWith('~') ? parentFilter : '~/' + parentFilter;
-        list = list.filter((p: any) => p.name.startsWith(prefix + '/') || p.name === prefix);
-      }
-      setProjects(list);
+      setProjects(data.projects);
       setCountMap(data.countMap);
       setLoading(false);
     });
-  }, [typeFilter, parentFilter]);
+  }, [typeFilter]);
 
   const title = !typeFilter
     ? 'All Projects'
@@ -36,6 +187,8 @@ export function Dashboard() {
     ? projects.filter(p => p.type === 'flutter').length + ' Flutter · ' + projects.filter(p => p.type === 'laravel').length + ' Laravel'
     : projects.length + ' project(s) found';
 
+  const tree = buildTree(projects, countMap);
+
   if (loading) return <div className="text-gray-400">Loading...</div>;
 
   return (
@@ -44,32 +197,6 @@ export function Dashboard() {
         <div>
           <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
           <p className="text-gray-500 text-sm">{subtitle}</p>
-          {projects.length > 0 && (
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {Array.from(new Set(projects.map((p: any) => {
-                const parts = p.name.split('/');
-                return parts.slice(0, parts[0] === '~' ? 2 : 1).join('/');
-              }))).sort().map((parent) => (
-                <button
-                  key={parent as string}
-                  onClick={() => {
-                    if (parentFilter === parent) {
-                      setSearchParams(typeFilter ? { type: typeFilter } : {});
-                    } else {
-                      const params: Record<string, string> = { parent: parent as string };
-                      if (typeFilter) params.type = typeFilter;
-                      setSearchParams(params);
-                    }
-                  }}
-                  className={`text-xs px-2 py-1 rounded transition ${
-                    parentFilter === parent ? 'bg-emerald-500 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                  }`}
-                >
-                  {parent as string}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -102,60 +229,18 @@ export function Dashboard() {
           <p className="text-sm mt-1">Go to Settings to add scan folders</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {projects.map((project) => (
-            <Card
-              key={project.id}
-              className="cursor-pointer hover:shadow-md transition border-l-4"
-              style={{
-                borderLeftColor: project.type === 'flutter' ? '#3b82f6' : project.type === 'agent' ? '#a855f7' : '#f97316',
-              }}
-              onClick={() => navigate(`/project/${project.id}`)}
-            >
-              <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-gray-800">{project.name}</CardTitle>
-                    <CardDescription>
-                      <span className={
-                        project.type === 'flutter'
-                          ? 'text-blue-500'
-                          : project.type === 'laravel'
-                            ? 'text-orange-500'
-                            : 'text-purple-500'
-                      }>
-                        {project.type === 'agent' ? '🤖 AGENT' : project.type.charAt(0).toUpperCase() + project.type.slice(1)}
-                      </span>
-                    </CardDescription>
-                  </div>
-                  <Badge variant="secondary">
-                    {countMap[project.id] || 0} running
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-1 mb-3">
-                  <p className="text-xs text-gray-400 truncate">{project.path}</p>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      e.preventDefault();
-                      navigator.clipboard.writeText(project.path);
-                      toast('Path copied!');
-                    }}
-                    className="text-gray-500 hover:text-emerald-500 transition text-xs flex-shrink-0 cursor-pointer"
-                    title="Copy path"
-                  >
-                    📋
-                  </button>
-                </div>
-                <span className="text-sm text-gray-600 hover:text-gray-800">
-                  Open →
-                </span>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <CardContent className="pt-4 pb-2">
+            {tree.map((node) => (
+              <FolderNode
+                key={node.path}
+                node={node}
+                depth={0}
+                onNavigate={(id) => navigate(`/project/${id}`)}
+              />
+            ))}
+          </CardContent>
+        </Card>
       )}
     </div>
   );
