@@ -2,7 +2,7 @@
 const path = require('path');
 
 module.exports = {
-  port: process.env.PORT || 3000,
+  port: process.env.PORT || 9876,
   
   // Database — ganti client & connection buat pake PostgreSQL/MySQL
   database: {
@@ -23,14 +23,26 @@ module.exports = {
 
   commands: {
     flutter: [
+      { label: 'Run Dev (Mobile)', command: 'bash run-dev.sh' },
+      { label: 'Run Dev (Web)', command: 'bash run-dev-web.sh' },
+      { label: 'Run Prod (Mobile)', command: 'bash run-prodv2.sh' },
+      { label: 'Run Prod (Web)', command: 'bash run-prodv2-web.sh' },
+      { label: 'Build Web', command: 'bash build.sh dev' },
+      { label: 'Build Web (Prod)', command: 'bash build.sh prod' },
+      { label: 'Compile APK', command: 'bash compile-apk.sh dev' },
+      { label: 'Compile APK (Prod)', command: 'bash compile-apk.sh prodv2' },
+      { label: 'Serve Web', command: 'bash serve.sh' },
       { label: 'Flutter Run', command: 'flutter run' },
       { label: 'Pub Get', command: 'flutter pub get' },
-      { label: 'Build Runner', command: 'flutter pub run build_runner watch' },
+      { label: 'Flutter Clean', command: 'flutter clean' },
     ],
     laravel: [
       { label: 'Artisan Serve', command: 'php artisan serve' },
       { label: 'NPM Dev', command: 'npm run dev' },
       { label: 'Queue Work', command: 'php artisan queue:work' },
+      { label: 'Migrate', command: 'php artisan migrate' },
+      { label: 'Config Cache', command: 'php artisan config:cache' },
+      { label: 'Route List', command: 'php artisan route:list' },
     ],
   },
 };

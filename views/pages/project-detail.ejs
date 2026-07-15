@@ -1,5 +1,5 @@
 <div class="mb-6">
-  <a href="/" class="text-sm text-gray-500 hover:text-gray-700">← Back to Dashboard</a>
+  <a href="/" class="text-sm text-gray-500 hover:text-gray-700">&larr; Back to Dashboard</a>
   <h2 class="text-2xl font-bold text-gray-800 mt-1"><%= project.name %></h2>
   <p class="text-gray-500 text-sm"><%= project.path %></p>
   <span class="inline-block mt-1 text-xs px-2 py-0.5 rounded <%= project.type === 'flutter' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700' %>">
@@ -7,43 +7,115 @@
   </span>
 </div>
 
-<!-- Command Templates -->
+<!-- Custom command form -->
 <div class="bg-white rounded-lg shadow p-4 mb-6">
-  <h3 class="font-semibold text-gray-700 mb-3">Add Command</h3>
-  <div class="flex flex-wrap gap-2">
-    <% for (const tmpl of templates) { %>
-      <form action="/project/<%= project.id %>/add-template" method="POST" style="display:inline">
-        <input type="hidden" name="template_id" value="<%= tmpl.id %>">
-        <button type="submit" class="text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded hover:bg-gray-200 transition border">
-          + <%= tmpl.label %>
-        </button>
-      </form>
-    <% } %>
-  </div>
-
-  <!-- Custom command -->
-  <form action="/processes/manual" method="POST" class="mt-3 flex gap-2">
+  <h3 class="font-semibold text-gray-700 mb-3">Tambah Command Baru</h3>
+  <form action="/processes/manual" method="POST" class="flex gap-2">
     <input type="hidden" name="project_id" value="<%= project.id %>">
     <input type="text" name="label" placeholder="Label (e.g., Custom Server)" class="border rounded px-2 py-1 text-sm flex-1" required>
     <input type="text" name="command" placeholder="Command (e.g., node server.js)" class="border rounded px-2 py-1 text-sm flex-1" required>
-    <button type="submit" class="bg-emerald-500 text-white px-3 py-1 rounded text-sm hover:bg-emerald-600">Add</button>
+    <button type="submit" class="bg-emerald-500 text-white px-3 py-1 rounded text-sm hover:bg-emerald-600">Tambah</button>
   </form>
 </div>
 
-<!-- Processes -->
-<div class="space-y-3">
-  <h3 class="font-semibold text-gray-700">Processes</h3>
+<!-- Processes List (Sortable) -->
+<div class="space-y-1">
+  <div class="flex justify-between items-center mb-2">
+    <h3 class="font-semibold text-gray-700">Commands</h3>
+    <span class="text-xs text-gray-400">&uarr;&darr; drag to sort</span>
+  </div>
   <% if (processes.length === 0) { %>
-    <p class="text-gray-400 text-sm">No processes added yet. Use the buttons above to add commands.</p>
+    <p class="text-gray-400 text-sm">Belum ada command.</p>
   <% } else { %>
-    <% for (const proc of processes) { %>
-      <div class="bg-white rounded-lg shadow p-4 flex items-center justify-between">
-        <div>
-          <p class="font-medium text-gray-800"><%= proc.label %></p>
-          <code class="text-xs text-gray-500"><%= proc.command %></code>
+    <div id="process-list" class="space-y-2">
+      <% for (const proc of processes) { %>
+        <div class="process-item bg-white rounded-lg shadow hover:shadow-md border border-gray-100" data-id="<%= proc.id %>">
+          <!-- Header row -->
+          <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3 flex-1">
+              <span class="drag-handle text-gray-400 hover:text-gray-600 text-lg select-none">&#x283F;</span>
+              <div>
+                <p class="font-medium text-gray-800"><%= proc.label %></p>
+                <code class="text-xs text-gray-500"><%= proc.command %></code>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <%- include('../partials/process-status', { proc }) %>
+              <button onclick="toggleLog(<%= proc.id %>)" class="text-xs text-gray-400 hover:text-gray-600 px-1 transition">&#x1F4CB;</button>
+            </div>
+          </div>
+          <!-- Log panel (hidden by default) - DARK TERMINAL -->
+          <div id="log-panel-<%= proc.id %>" class="hidden border-t border-gray-200 p-3">
+            <div class="rounded-lg overflow-hidden shadow-lg" style="border: 1px solid #374151;">
+              <!-- Terminal header -->
+              <div class="flex items-center gap-2 px-3 py-2" style="background-color: #0d1117; border-bottom: 1px solid #374151;">
+                <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                <span class="text-xs text-gray-500 ml-2">terminal</span>
+              </div>
+              <!-- Output -->
+              <pre id="log-content-<%= proc.id %>" class="text-xs p-4 overflow-auto max-h-[70vh] min-h-[20rem] font-mono leading-relaxed" style="background-color: #0d1117; color: #4ade80;" 
+                   hx-get="/process/<%= proc.id %>/log" 
+                   hx-trigger="every 2s" 
+                   hx-target="#log-content-<%= proc.id %>" 
+                   hx-swap="innerHTML">
+Waiting for output...
+              </pre>
+              <!-- Input bar -->
+              <div class="flex gap-1 px-3 py-2" style="background-color: #0d1117; border-top: 1px solid #374151;">
+                <span class="text-gray-500 text-xs leading-6">&#x276F;</span>
+                <input id="log-input-<%= proc.id %>" type="text" placeholder="Input..." 
+                       class="flex-1 text-green-400 text-xs px-2 py-1 outline-none font-mono" style="background: #161b22; border: 1px solid #30363d; border-radius: 4px; color: #4ade80;"
+                       onkeypress="if(event.key==='Enter')sendInput(<%= proc.id %>)">
+                <button onclick="sendInput(<%= proc.id %>)" 
+                        class="text-xs bg-emerald-600 text-white px-3 py-1 rounded hover:bg-emerald-500 transition">Kirim</button>
+
+              </div>
+            </div>
+          </div>
         </div>
-        <%- include('../partials/process-status', { proc }) %>
-      </div>
-    <% } %>
+      <% } %>
+    </div>
   <% } %>
 </div>
+
+<script>
+  function toggleLog(id) {
+    var panel = document.getElementById('log-panel-' + id);
+    panel.classList.toggle('hidden');
+  }
+
+  function sendInput(id) {
+    var input = document.getElementById('log-input-' + id);
+    if (!input.value) return;
+    fetch('/ejs/process/' + id + '/input', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'input=' + encodeURIComponent(input.value)
+    });
+    input.value = '';
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var list = document.getElementById('process-list');
+    if (!list) return;
+
+    new Sortable(list, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'opacity-50',
+      onEnd: function() {
+        var order = Array.from(list.children).map(function(el) {
+          return el.dataset.id;
+        }).join(',');
+
+        fetch('/ejs/project/<%= project.id %>/reorder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: 'order=' + encodeURIComponent(order)
+        });
+      }
+    });
+  });
+</script>

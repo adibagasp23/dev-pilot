@@ -4,8 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Process Manager</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/css/tailwind.css">
   <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
   <link rel="stylesheet" href="/css/custom.css">
   <style>
     .process-card { transition: all 0.2s ease; }
@@ -14,38 +15,34 @@
     .status-running { background-color: #22c55e; }
     .status-stopped { background-color: #ef4444; }
     .status-error { background-color: #f59e0b; }
+    .drag-handle { cursor: grab !important; }
+    .drag-handle:active { cursor: grabbing !important; }
   </style>
 </head>
-<body class="bg-gray-50 min-h-screen">
+<body class="bg-gray-50">
   <div class="flex">
     <!-- Sidebar -->
-    <aside class="w-64 bg-gray-900 text-white min-h-screen p-4">
+    <aside class="fixed left-0 top-0 w-64 bg-gray-900 text-white h-screen overflow-y-auto p-4">
       <h1 class="text-xl font-bold mb-6 flex items-center gap-2">
         <span class="text-emerald-400">⚡</span> PM
       </h1>
       
       <nav class="space-y-2">
-        <a href="/" class="block px-3 py-2 rounded hover:bg-gray-700 transition <%= activeFilter === 'all' ? 'bg-gray-700' : '' %>">
-          📋 All Projects
+        <a href="/ejs/" class="block px-3 py-2 rounded hover:bg-gray-700 transition">
+          📋 EJS Dashboard
         </a>
-        <a href="/?type=flutter" class="block px-3 py-2 rounded hover:bg-gray-700 transition <%= activeFilter === 'flutter' ? 'bg-gray-700' : '' %>">
-          🟦 Flutter
-        </a>
-        <a href="/?type=laravel" class="block px-3 py-2 rounded hover:bg-gray-700 transition <%= activeFilter === 'laravel' ? 'bg-gray-700' : '' %>">
-          🟠 Laravel
+        <a href="/ejs/settings" class="block px-3 py-2 rounded hover:bg-gray-700 transition">
+          ⚙ EJS Settings
         </a>
         <hr class="my-3 border-gray-700">
-        <a href="/settings" class="block px-3 py-2 rounded hover:bg-gray-700 transition">
-          ⚙ Settings
-        </a>
-        <a href="/scan" class="block px-3 py-2 rounded hover:bg-gray-700 transition">
-          🔍 Re-scan All
+        <a href="/" class="block px-3 py-2 rounded bg-emerald-700 hover:bg-emerald-600 transition">
+          🚀 React App
         </a>
       </nav>
     </aside>
 
     <!-- Main Content -->
-    <main class="flex-1 p-6">
+    <main class="flex-1 min-h-screen p-6 ml-64">
       <%- body %>
     </main>
   </div>
