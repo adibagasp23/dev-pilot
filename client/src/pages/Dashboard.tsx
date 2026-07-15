@@ -138,7 +138,7 @@ function FolderNode({ node, depth, onNavigate }: {
   return (
     <div>
       <div
-        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer transition"
+        className="flex items-center gap-1.5 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer group transition"
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={toggle}
       >
@@ -148,6 +148,18 @@ function FolderNode({ node, depth, onNavigate }: {
         <span className="text-gray-500">{expanded ? '📂' : '📁'}</span>
         <span className="text-gray-800 text-sm font-medium">{node.name}</span>
         <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const fullPath = node.path;
+            navigator.clipboard.writeText(fullPath);
+            toast('Path copied!');
+          }}
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-auto opacity-0 group-hover:opacity-100 cursor-pointer"
+          title="Copy path"
+        >
+          📋
+        </button>
       </div>
       {expanded && node.children && (
         <div>
