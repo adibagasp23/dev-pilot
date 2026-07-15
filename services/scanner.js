@@ -17,7 +17,23 @@ function detectProjectType(folderPath) {
   const files = fs.readdirSync(folderPath);
   if (files.includes('pubspec.yaml')) return 'flutter';
   if (files.includes('artisan')) return 'laravel';
+  if (files.includes('next.config.ts') || files.includes('next.config.js') || files.includes('next.config.mjs')) return 'laravel';
   return 'other';
+}
+
+async function addProject(db, fullPath, type, scanFolderId, scanAbsPath, found) {
+  const relativeName = toRelativePath(fullPath);
+  const groupName = path.basename(scanAbsPath);
+  const existing = await db('projects').where('path', fullPath).first();
+  if (existing) {
+    await db('projects').where('id', existing.id).update({ name: relativeName, last_scanned: db.fn.now(), group_name: groupName });
+    found.push({ id: existing.id, name: relativeName, path: fullPath, type });
+  } else {
+    const [id] = await db('projects').insert({
+      name: relativeName, path: fullPath, type, scan_folder_id: scanFolderId, group_name: groupName,
+    });
+    found.push({ id, name: relativeName, path: fullPath, type });
+  }
 }
 
 async function scanFolder(folderPath) {
@@ -41,22 +57,21 @@ async function scanFolder(folderPath) {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const fullPath = path.join(absPath, entry.name);
-    const type = detectProjectType(fullPath);
-    if (type === 'other') continue;
+    let type = detectProjectType(fullPath);
 
-    // Project name = relative path from home (~/...) or full path if outside home
-    const relativeName = toRelativePath(fullPath);
-    const groupName = path.basename(absPath);
-
-    const existing = await db('projects').where('path', fullPath).first();
-    if (existing) {
-      await db('projects').where('id', existing.id).update({ name: relativeName, last_scanned: db.fn.now(), group_name: groupName });
-      found.push({ id: existing.id, name: relativeName, path: fullPath, type });
+    if (type !== 'other') {
+      await addProject(db, fullPath, type, scanFolderId, absPath, found);
     } else {
-      const [id] = await db('projects').insert({
-        name: relativeName, path: fullPath, type, scan_folder_id: scanFolderId, group_name: groupName,
-      });
-      found.push({ id, name: relativeName, path: fullPath, type });
+      // Check one level deeper
+      const subEntries = fs.readdirSync(fullPath, { withFileTypes: true });
+      for (const sub of subEntries) {
+        if (!sub.isDirectory()) continue;
+        const subPath = path.join(fullPath, sub.name);
+        const subType = detectProjectType(subPath);
+        if (subType !== 'other') {
+          await addProject(db, subPath, subType, scanFolderId, absPath, found);
+        }
+      }
     }
   }
 
