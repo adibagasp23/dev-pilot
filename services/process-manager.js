@@ -50,11 +50,40 @@ const runningProcesses = new Map();
 const processLogs = new Map();
 const MAX_LOG_LINES = 2000;
 
-function pushLine(logs, line) {
+// SSE clients: Map<processId, Set<Response>>
+const processSSEClients = new Map();
+
+function subscribeSSE(processId, res) {
+  if (!processSSEClients.has(processId)) {
+    processSSEClients.set(processId, new Set());
+  }
+  processSSEClients.get(processId).add(res);
+}
+
+function unsubscribeSSE(processId, res) {
+  const clients = processSSEClients.get(processId);
+  if (clients) {
+    clients.delete(res);
+    if (clients.size === 0) processSSEClients.delete(processId);
+  }
+}
+
+function notifySSEClients(processId, event, data) {
+  const clients = processSSEClients.get(processId);
+  if (!clients) return;
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) {
+    try { res.write(msg); } catch { clients.delete(res); }
+  }
+}
+
+function pushLine(logs, line, processId) {
   logs.lines.push(line);
   if (logs.lines.length > MAX_LOG_LINES) {
     logs.lines.splice(0, logs.lines.length - MAX_LOG_LINES);
   }
+  // Notify SSE clients
+  if (processId) notifySSEClients(processId, 'line', line);
 }
 
 async function startProcess(processId) {
@@ -127,15 +156,19 @@ async function startProcess(processId) {
     stopped_at: null,
   });
 
+  // Notify SSE clients that process is now running
+  notifySSEClients(processId, 'status', { status: 'running' });
+
   child.on('exit', async (code) => {
     runningProcesses.delete(processId);
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'i', t: `\n⚠ Process exited with code ${code}\n` });
+    if (logs) pushLine(logs, { s: 'i', t: `\n⚠ Process exited with code ${code}\n` }, processId);
     await db('processes').where('id', processId).update({
       status: code === 0 ? 'stopped' : 'error',
       pid: null,
       stopped_at: db.fn.now(),
     });
+    notifySSEClients(processId, 'status', { status: code === 0 ? 'stopped' : 'error' });
   });
 
   child.on('error', async (err) => {
@@ -196,11 +229,11 @@ async function stopProcess(processId) {
     }
     runningProcesses.delete(processId);
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'i', t: '\n⚠ Process stopped by user\n' });
+    if (logs) pushLine(logs, { s: 'i', t: '\n⚠ Process stopped by user\n' }, processId);
   } else if (proc.pid) {
     try { process.kill(proc.pid, 'SIGINT'); } catch {}
     const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'i', t: '\n⚠ Process stopped by user\n' });
+    if (logs) pushLine(logs, { s: 'i', t: '\n⚠ Process stopped by user\n' }, processId);
   }
 
   await db('processes').where('id', processId).update({
@@ -208,6 +241,9 @@ async function stopProcess(processId) {
     pid: null,
     stopped_at: db.fn.now(),
   });
+
+  // Notify SSE clients about status change
+  notifySSEClients(processId, 'status', { status: 'stopped' });
 
   // Kill any process still holding the port
   if (proc.port) {
@@ -238,4 +274,4 @@ process.on('exit', cleanup);
 process.on('SIGINT', () => { cleanup(); process.exit(); });
 process.on('SIGTERM', () => { cleanup(); process.exit(); });
 
-module.exports = { startProcess, stopProcess, getProcessStatus, sendInput, getLogs, clearLogs, cleanup };
+module.exports = { startProcess, stopProcess, getProcessStatus, sendInput, getLogs, clearLogs, cleanup, subscribeSSE, unsubscribeSSE, notifySSEClients, processSSEClients, processLogs, runningProcesses };

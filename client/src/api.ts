@@ -29,6 +29,12 @@ export const api = {
   stopProcess: (id: number) =>
     fetchJSON<Process>(`/processes/${id}/stop`, { method: 'POST' }),
 
+  toggleProcessFavorite: (processId: number, favorite: boolean) =>
+    fetchJSON<{ process: Process }>(`/processes/${processId}/favorite`, {
+      method: 'PUT',
+      body: JSON.stringify({ favorite }),
+    }),
+
   addProcess: (project_id: number, label: string, command: string, port?: string) =>
     fetchJSON<Process>('/processes', {
       method: 'POST',
@@ -81,9 +87,57 @@ export const api = {
       body: JSON.stringify({ name, type, path }),
     }),
 
+  setDefaultProcess: (projectId: number, processId: number) =>
+    fetchJSON<{ project: Project }>(`/projects/${projectId}/default-process`, {
+      method: 'PUT',
+      body: JSON.stringify({ processId }),
+    }),
+
+  toggleFavorite: (projectId: number, favorite: boolean) =>
+    fetchJSON<{ project: Project }>(`/projects/${projectId}/favorite`, {
+      method: 'PUT',
+      body: JSON.stringify({ favorite }),
+    }),
+
+  getFavorites: () =>
+    fetchJSON<{ projects: Project[] }>('/favorites'),
+
+  getFavoriteProcesses: () =>
+    fetchJSON<{ processes: import('./types').FavoriteProcess[] }>('/favorites/processes'),
+
+  getAppTypes: () =>
+    fetchJSON<{ types: string[] }>('/settings/app-types'),
+
+  setAppTypes: (types: string[]) =>
+    fetchJSON<{ types: string[]; ok: boolean }>('/settings/app-types', {
+      method: 'PUT',
+      body: JSON.stringify({ types }),
+    }),
+
   rescan: () =>
     fetchJSON<{ ok: boolean }>('/scan', { method: 'POST' }),
 
   getRunningProcesses: () =>
     fetchJSON<{ processes: (Process & { project_name: string; project_type: string })[] }>('/processes/running'),
+
+  subscribeToLog: (id: number, onLine: (line: { s: string; t: string }) => void, onStatus: (status: string) => void, onInit: (lines: { s: string; t: string }[], status: string) => void) => {
+    const es = new EventSource(`${BASE}/processes/${id}/log/stream`);
+    es.addEventListener('init', (e) => {
+      const data = JSON.parse(e.data);
+      if (onInit) onInit(data.lines, data.status);
+    });
+    es.addEventListener('line', (e) => {
+      const data = JSON.parse(e.data);
+      if (onLine) onLine(data);
+    });
+    es.addEventListener('status', (e) => {
+      const data = JSON.parse(e.data);
+      if (onStatus) onStatus(data.status);
+    });
+    es.onerror = () => {
+      // Connection closed or error
+      es.close();
+    };
+    return es;
+  },
 };

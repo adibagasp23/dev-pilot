@@ -3,7 +3,29 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/db');
 const { scanAllFolders, scanFolder } = require('../services/scanner');
-const { startProcess, stopProcess, sendInput, getLogs, clearLogs } = require('../services/process-manager');
+const { startProcess, stopProcess, sendInput, getLogs, clearLogs, subscribeSSE, unsubscribeSSE, processLogs, runningProcesses } = require('../services/process-manager');
+const fs = require('fs');
+const path = require('path');
+
+const APP_TYPES_PATH = path.join(__dirname, '..', 'config', 'app-types.json');
+
+async function getAppTypes() {
+  try {
+    const db = getDB();
+    const row = await db('settings').where('key', 'app_types').first();
+    if (row) return JSON.parse(row.value);
+  } catch {}
+  return ['flutter', 'laravel', 'next'];
+}
+
+// Logger (same format as process-manager.js)
+const logFile = path.join(__dirname, '..', 'logs', 'app.log');
+function log(level, msg, data) {
+  const ts = new Date().toISOString();
+  const line = `[${ts}] [${level}] ${msg}${data ? ' ' + JSON.stringify(data) : ''}`;
+  try { fs.appendFileSync(logFile, line + '\n'); } catch {}
+  try { process.stdout.write(line + '\n'); } catch {}
+}
 
 // Get all projects
 router.get('/projects', async (req, res) => {
@@ -13,7 +35,7 @@ router.get('/projects', async (req, res) => {
 
   let projects;
   if (typeFilter === 'app') {
-    projects = await db('projects').whereIn('type', ['flutter', 'laravel', 'next']).orderBy('name');
+    projects = await db('projects').whereIn('type', await getAppTypes()).orderBy('name');
   } else if (typeFilter) {
     projects = await db('projects').where('type', typeFilter).orderBy('name');
   } else {
@@ -70,6 +92,77 @@ router.get('/projects/:id', async (req, res) => {
 
   const processes = await db('processes').where('project_id', project.id).orderBy('sort_order', 'asc');
   res.json({ project, processes });
+});
+
+// Set default process for a project
+router.put('/projects/:id/default-process', async (req, res) => {
+  const db = getDB();
+  const { processId } = req.body;
+  if (!processId) return res.status(400).json({ error: 'processId is required' });
+
+  // Verify process belongs to this project
+  const proc = await db('processes').where({ id: processId, project_id: req.params.id }).first();
+  if (!proc) return res.status(404).json({ error: 'Process not found in this project' });
+
+  await db('projects').where('id', req.params.id).update({ default_process_id: processId });
+  const project = await db('projects').where('id', req.params.id).first();
+  res.json({ project });
+});
+
+// Toggle favorite
+router.put('/projects/:id/favorite', async (req, res) => {
+  const db = getDB();
+  const { favorite } = req.body;
+  const project = await db('projects').where('id', req.params.id).first();
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  await db('projects').where('id', req.params.id).update({ is_favorite: !!favorite });
+  const updated = await db('projects').where('id', req.params.id).first();
+  res.json({ project: updated });
+});
+
+// Get favorites
+router.get('/favorites', async (req, res) => {
+  const db = getDB();
+  const projects = await db('projects').where('is_favorite', true).orderBy('name');
+  res.json({ projects });
+});
+
+// Get favorited processes (pinned commands)
+router.get('/favorites/processes', async (req, res) => {
+  const db = getDB();
+  const processes = await db('processes')
+    .join('projects', 'processes.project_id', 'projects.id')
+    .where('processes.is_favorite', true)
+    .select('processes.*', 'projects.name as project_name', 'projects.type as project_type')
+    .orderBy('projects.name')
+    .orderBy('processes.sort_order');
+  res.json({ processes });
+});
+
+// Toggle process favorite
+router.put('/processes/:id/favorite', async (req, res) => {
+  const db = getDB();
+  const { favorite } = req.body;
+  const proc = await db('processes').where('id', req.params.id).first();
+  if (!proc) return res.status(404).json({ error: 'Process not found' });
+  await db('processes').where('id', req.params.id).update({ is_favorite: !!favorite });
+  const updated = await db('processes').where('id', req.params.id).first();
+  res.json({ process: updated });
+});
+
+// Get app types config
+router.get('/settings/app-types', async (req, res) => {
+  const types = await getAppTypes();
+  res.json({ types });
+});
+
+// Update app types config
+router.put('/settings/app-types', async (req, res) => {
+  const db = getDB();
+  const { types } = req.body;
+  if (!Array.isArray(types)) return res.status(400).json({ error: 'types must be an array' });
+  await db('settings').where('key', 'app_types').update({ value: JSON.stringify(types) });
+  res.json({ types, ok: true });
 });
 
 // Start process
@@ -134,6 +227,44 @@ router.post('/projects/:id/reorder', async (req, res) => {
 router.get('/processes/:id/log', async (req, res) => {
   const logs = await getLogs(parseInt(req.params.id));
   res.json(logs);
+});
+
+// SSE stream for real-time log updates
+router.get('/processes/:id/log/stream', (req, res) => {
+  const processId = parseInt(req.params.id);
+  log('INFO', `SSE stream requested for process ${processId}`);
+
+  try {
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+
+    // Send current state
+    const logs = processLogs.get(processId);
+    const running = runningProcesses.has(processId);
+    const allLines = logs ? logs.lines : [];
+    const initData = JSON.stringify({ lines: allLines, status: running ? 'running' : 'stopped' });
+    res.write(`event: init\ndata: ${initData}\n\n`);
+
+    // Subscribe for future updates
+    subscribeSSE(processId, res);
+
+  // Cleanup on disconnect
+  req.on('close', () => {
+    log('INFO', `SSE client disconnected for process ${processId}`);
+    unsubscribeSSE(processId, res);
+  });
+
+  req.on('error', (err) => {
+    log('ERROR', `SSE error for process ${processId}`, { message: err.message });
+    unsubscribeSSE(processId, res);
+  });
+  } catch (err) {
+    log('ERROR', `SSE setup error for process ${processId}`, { message: err.message });
+  }
 });
 
 // Clear process logs
@@ -242,7 +373,6 @@ router.post('/create-project', async (req, res) => {
   const db = getDB();
   const { name, type, path } = req.body;
   if (!name || !type) return res.status(400).json({ error: 'Name and type required' });
-  if (!['flutter', 'laravel', 'agent'].includes(type)) return res.status(400).json({ error: 'Invalid type' });
 
   const [id] = await db('projects').insert({ name, type, path: path || '' });
   const project = await db('projects').where('id', id).first();

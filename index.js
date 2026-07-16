@@ -23,7 +23,7 @@ function log(level, msg, data) {
 process.on('uncaughtException', (err) => {
   if (err.code === 'EPIPE' || err.message?.includes('EPIPE')) return;
   const ts = new Date().toISOString();
-  const line = `[${ts}] [FATAL] Uncaught exception ${err.message}`;
+  const line = `[${ts}] [FATAL] Uncaught exception ${err.message}\n${err.stack}`;
   try { fs.appendFileSync(path.join(logDir, 'app.log'), line + '\n'); } catch {}
   process.exit(1);
 });
@@ -58,6 +58,11 @@ const app = express();
   } catch (err) {
     log('ERROR', 'Startup cleanup failed', { message: err.message });
   }
+
+  // Daily database backup
+  const { backup } = require('./services/backup');
+  backup();
+  setInterval(() => { backup(); }, 60 * 60 * 1000);
 })();
 
 // Body parsing

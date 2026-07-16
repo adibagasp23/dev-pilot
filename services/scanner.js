@@ -38,7 +38,10 @@ async function addProject(db, fullPath, type, scanFolderId, scanAbsPath, found, 
 
 async function scanFolder(folderPath) {
   const db = getDB();
-  const absPath = path.resolve(folderPath);
+  // Expand ~ to home directory
+  const absPath = folderPath.startsWith('~') 
+    ? path.join(os.homedir(), folderPath.slice(1))
+    : path.resolve(folderPath);
 
   if (!fs.existsSync(absPath)) {
     return { error: `Folder not found: ${absPath}`, projects: [] };

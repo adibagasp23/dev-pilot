@@ -3,6 +3,8 @@ export interface Project {
   name: string;
   path: string;
   type: 'flutter' | 'laravel' | 'agent' | 'next';
+  default_process_id?: number | null;
+  is_favorite?: boolean;
   created_at: string;
 }
 
@@ -17,6 +19,12 @@ export interface Process {
   started_at: string | null;
   stopped_at: string | null;
   sort_order: number;
+  is_favorite?: boolean;
+}
+
+export interface FavoriteProcess extends Process {
+  project_name: string;
+  project_type: string;
 }
 
 export interface ScanFolder {

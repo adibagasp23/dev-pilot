@@ -1,15 +1,33 @@
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { api } from '../api';
+import type { FavoriteProcess } from '../types';
 
 const links = [
   { label: 'All Projects', path: '/', filter: null },
   { label: '📱 APP', path: '/?type=app', filter: 'app' },
 ];
 
+const TYPE_EMOJI: Record<string, string> = {
+  flutter: '🔵', laravel: '🟠', next: '⚫', rust: '🟣', agent: '🤖', strapi: '📦',
+};
+
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const currentFilter = searchParams.get('type') || 'all';
+  const [favProcesses, setFavProcesses] = useState<FavoriteProcess[]>([]);
+
+  const load = () => {
+    api.getFavoriteProcesses().then((d) => setFavProcesses(d.processes)).catch(() => {});
+  };
+
+  useEffect(() => {
+    load();
+    window.addEventListener('favorites-changed', load);
+    return () => window.removeEventListener('favorites-changed', load);
+  }, []);
 
   return (
     <aside className="w-64 bg-gray-900 text-white h-screen overflow-y-auto p-4 flex-shrink-0">
@@ -70,6 +88,29 @@ export function Sidebar() {
         >
           🔍 Re-scan All
         </a>
+
+        {/* Pinned Commands at bottom */}
+        {favProcesses.length > 0 && (
+          <>
+            <hr className="my-3 border-gray-700" />
+            <p className="px-3 text-xs text-gray-400 uppercase tracking-wider mb-1">Pinned</p>
+            {favProcesses.map((proc) => (
+              <a
+                key={proc.id}
+                href={`/project/${proc.project_id}`}
+                onClick={(e) => { e.preventDefault(); navigate(`/project/${proc.project_id}`); }}
+                className="block px-3 py-1.5 rounded hover:bg-gray-700 transition text-sm truncate group"
+              >
+                <span className="text-gray-400 group-hover:text-white">
+                  {TYPE_EMOJI[proc.project_type] || '📁'} {proc.project_name.replace(/^~\//, '')}
+                </span>
+                <span className="text-gray-500 group-hover:text-gray-300 text-xs block truncate">
+                  📌 {proc.label}
+                </span>
+              </a>
+            ))}
+          </>
+        )}
       </nav>
     </aside>
   );

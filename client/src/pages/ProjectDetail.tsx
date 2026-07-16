@@ -6,8 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { toast } from '../components/Snackbar';
-import FlutterQuickActions from '../components/FlutterQuickActions';
-import TerminalInput from '../components/TerminalInput';
+import ProcessLogPanel from '../components/ProcessLogPanel';
 
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -23,19 +22,25 @@ export function ProjectDetail() {
   const dragItem = useRef<number | null>(null);
   const canDrag = useRef(false);
   const processesRef = useRef<Process[]>([]);
-  const preRefs = useRef<Record<number, HTMLPreElement | null>>({});
-  const userScrolled = useRef<Record<number, boolean>>({});
 
   const load = useCallback(() => {
     if (!id) return;
     api.getProject(parseInt(id)).then((data) => {
       setProject(data.project);
-      setProcesses(data.processes);
-      processesRef.current = data.processes;
+      // Sort: favorites first, then by sort_order
+      const sorted = [...data.processes].sort((a, b) => {
+        if (a.is_favorite && !b.is_favorite) return -1;
+        if (!a.is_favorite && b.is_favorite) return 1;
+        return (a.sort_order || 0) - (b.sort_order || 0);
+      });
+      setProcesses(sorted);
+      processesRef.current = sorted;
 
       // Auto-start if ?autoStart=true
       if (searchParams.get('autoStart') === 'true' && data.processes.length > 0) {
-        const firstProc = data.processes[0];
+        const firstProc = data.project.default_process_id
+          ? data.processes.find((p: Process) => p.id === data.project.default_process_id) || data.processes[0]
+          : data.processes[0];
         api.startProcess(firstProc.id).then(() => {
           setOpenLogs((prev) => ({ ...prev, [firstProc.id]: true }));
           load(); // reload to get running status
@@ -61,25 +66,7 @@ export function ProjectDetail() {
 
   useEffect(() => {
     load();
-  }, [load]);
-
-  // Auto-scroll log panels to bottom when new data arrives (unless user scrolled up)
-  useEffect(() => {
-    Object.entries(preRefs.current).forEach(([pid, pre]) => {
-      if (!pre) return;
-      const wasUserScroll = userScrolled.current[parseInt(pid)];
-      if (!wasUserScroll) {
-        pre.scrollTop = pre.scrollHeight;
-      }
-    });
-  }, [logs]);
-
-  const handleLogScroll = (pid: number, pre: HTMLPreElement) => {
-    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 50;
-    userScrolled.current[pid] = !atBottom;
-  };
-
-  // Poll logs for open panels
+  }, [load])  // Poll logs for open panels
   useEffect(() => {
     const interval = setInterval(() => {
       const openIds = Object.entries(openLogs)
@@ -200,29 +187,6 @@ export function ProjectDetail() {
     }
   };
 
-  const copyVisibleLog = (procId: number) => {
-    const pre = preRefs.current[procId];
-    if (!pre) return;
-    const text = pre.textContent || '';
-    const lines = text.split('\n');
-
-    // Calculate which lines are visible based on scroll position
-    const lineCount = lines.length;
-    if (lineCount <= 1) {
-      navigator.clipboard.writeText(text);
-      toast('Copied!');
-      return;
-    }
-
-    const lineHeight = pre.scrollHeight / lineCount;
-    const start = Math.max(0, Math.floor(pre.scrollTop / lineHeight) - 1);
-    const end = Math.min(lineCount, Math.ceil((pre.scrollTop + pre.clientHeight) / lineHeight) + 1);
-    const visible = lines.slice(start, end).join('\n');
-
-    navigator.clipboard.writeText(visible);
-    toast('Visible log copied!');
-  };
-
   const toggleLog = (procId: number) => {
     setOpenLogs((prev) => {
       const next = { ...prev, [procId]: !prev[procId] };
@@ -276,7 +240,9 @@ export function ProjectDetail() {
         <Link to="/" className="text-sm text-gray-500 hover:text-gray-700">
           ← Back to Dashboard
         </Link>
-        <h2 className="text-2xl font-bold text-gray-800 mt-1">{project.name}</h2>
+        <div className="flex items-center gap-2 mt-1">
+          <h2 className="text-2xl font-bold text-gray-800">{project.name}</h2>
+        </div>
         <div className="flex items-center gap-1.5 text-sm">
           <p className="text-gray-500">{project.path}</p>
           <button
@@ -361,14 +327,59 @@ export function ProjectDetail() {
                 {/* Header */}
                 <div className="flex items-center justify-between p-4">
                   <div className="flex items-center gap-3 flex-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (proc.id !== project.default_process_id) {
+                          api.setDefaultProcess(project.id, proc.id).then(({ project: p }) => {
+                            setProject(p);
+                            toast('Default command set!');
+                          }).catch((err: any) => toast(err.message));
+                        }
+                      }}
+                      className={`text-sm transition cursor-pointer ${
+                        proc.id === project.default_process_id
+                          ? 'text-red-500 hover:text-red-400'
+                          : 'text-gray-400 hover:text-red-400'
+                      }`}
+                      title={proc.id === project.default_process_id ? 'Default command' : 'Set as default'}
+                    >
+                      {proc.id === project.default_process_id ? '★' : '☆'}
+                    </button>
                     <span
                       className="drag-handle cursor-grab text-gray-400 hover:text-gray-600 text-lg select-none"
                       onMouseDown={() => { canDrag.current = true; }}
                     >
                       ⠿
                     </span>
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const fav = !proc.is_favorite;
+                        await api.toggleProcessFavorite(proc.id, fav);
+                        proc.is_favorite = fav;
+                        // Re-sort: move favorites to top
+                        const reSorted = [...processes].sort((a, b) => {
+                          if (a.is_favorite && !b.is_favorite) return -1;
+                          if (!a.is_favorite && b.is_favorite) return 1;
+                          return (a.sort_order || 0) - (b.sort_order || 0);
+                        });
+                        setProcesses(reSorted);
+                        processesRef.current = reSorted;
+                        window.dispatchEvent(new Event('favorites-changed'));
+                        toast(fav ? 'Pinned 📌' : 'Unpinned');
+                      }}
+                      className={`text-xs transition cursor-pointer ${
+                        proc.is_favorite ? 'opacity-100' : 'opacity-30 hover:opacity-100'
+                      }`}
+                      title={proc.is_favorite ? 'Unpin command' : 'Pin command'}
+                    >
+                      📌
+                    </button>
                     <div>
-                      <p className="font-medium text-gray-800">{proc.label}</p>
+                      <p className="font-medium text-gray-800">
+                        {proc.label}
+                      </p>
                       <div className="flex items-center gap-1.5">
                         <code className="text-xs text-gray-500">{proc.command}</code>
                         <button
@@ -487,88 +498,25 @@ export function ProjectDetail() {
                 {/* Log panel */}
                 {openLogs[proc.id] && (
                   <div className="border-t border-gray-200 p-3">
-                    <div
-                      className="rounded-lg overflow-hidden shadow-lg"
-                      style={{ border: '1px solid #374151' }}
-                    >
-                      {/* Terminal header */}
-                      <div
-                        className="flex items-center justify-between px-3 py-2"
-                        style={{
-                          backgroundColor: '#0d1117',
-                          borderBottom: '1px solid #374151',
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                          <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
-                          <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                          <span className="text-xs text-gray-500 ml-2">terminal</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(logs[proc.id] || '');
-                              toast('Full log copied!');
-                            }}
-                            className="text-xs text-gray-500 hover:text-emerald-400 transition cursor-pointer"
-                            title="Copy full log"
-                          >
-                            📋 All
-                          </button>
-                          <button
-                            onClick={() => copyVisibleLog(proc.id)}
-                            className="text-xs text-gray-500 hover:text-emerald-400 transition cursor-pointer"
-                            title="Copy visible area"
-                          >
-                            👁 View
-                          </button>
-                          <button
-                            onClick={() => {
-                              setLogs((prev) => ({ ...prev, [proc.id]: '' }));
-                              api.clearLogs(proc.id).catch(() => {});
-                              toast('Terminal cleared!');
-                            }}
-                            className="text-xs text-gray-500 hover:text-red-400 transition cursor-pointer"
-                            title="Clear terminal"
-                          >
-                            🗑 Clear
-                          </button>
-                        </div>
-                      </div>
-                      {/* Output */}
-                      <pre
-                        ref={(el) => { preRefs.current[proc.id] = el; }}
-                        onScroll={(e) => handleLogScroll(proc.id, e.currentTarget)}
-                        className="text-xs p-4 overflow-auto max-h-[70vh] min-h-[20rem] font-mono leading-relaxed select-text"
-                        style={{
-                          backgroundColor: '#0d1117',
-                          color: '#4ade80',
-                          userSelect: 'text',
-                        }}
-                      >
-                        {logs[proc.id] || 'Waiting for output...'}
-                      </pre>
-                      {/* Quick action buttons */}
-                      <div
-                        className="flex gap-1 px-3 py-1.5 flex-wrap"
-                        style={{
-                          backgroundColor: '#0d1117',
-                          borderTop: '1px solid #21262d',
-                        }}
-                      >
-                        {project.type === 'flutter' && (
-                        <FlutterQuickActions
-                          processId={proc.id}
-                          onSend={(pid, key) => api.sendInput(pid, key).catch(() => {})}
-                        />
-                      )}
-                      </div>
-                      <TerminalInput
-                        processId={proc.id}
-                        onSend={(pid, val) => api.sendInput(pid, val).catch(() => {})}
-                      />
-                    </div>
+                    <ProcessLogPanel
+                      processId={proc.id}
+                      log={logs[proc.id] || ''}
+                      projectType={project.type}
+                      onSend={(pid, val) => api.sendInput(pid, val).catch(() => {})}
+                      onCopyAll={() => {
+                        navigator.clipboard.writeText(logs[proc.id] || '');
+                        toast('Full log copied!');
+                      }}
+                      onCopyVisible={() => {
+                        navigator.clipboard.writeText(logs[proc.id] || '');
+                        toast('Log copied!');
+                      }}
+                      onClear={() => {
+                        setLogs((prev) => ({ ...prev, [proc.id]: '' }));
+                        api.clearLogs(proc.id).catch(() => {});
+                        toast('Terminal cleared!');
+                      }}
+                    />
                   </div>
                 )}
               </Card>
