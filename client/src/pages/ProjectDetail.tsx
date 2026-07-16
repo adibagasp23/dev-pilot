@@ -19,6 +19,7 @@ export function ProjectDetail() {
   const [editPort, setEditPort] = useState<Record<number, string>>({});
   const [logs, setLogs] = useState<Record<number, string>>({});
   const [openLogs, setOpenLogs] = useState<Record<number, boolean>>({});
+  const [searchQuery, setSearchQuery] = useState('');
   const dragItem = useRef<number | null>(null);
   const canDrag = useRef(false);
   const processesRef = useRef<Process[]>([]);
@@ -134,23 +135,12 @@ export function ProjectDetail() {
 
   const handleStop = async (procId: number) => {
     const updated = await api.stopProcess(procId);
-    await api.clearLogs(procId);
     setProcesses((prev) => {
       const next = prev.map((p) => (p.id === procId ? updated : p));
       processesRef.current = next;
       return next;
     });
-    // Close terminal panel + cleanup log state to prevent memory leak
-    setOpenLogs((prev) => {
-      const next = { ...prev };
-      delete next[procId];
-      return next;
-    });
-    setLogs((prev) => {
-      const next = { ...prev };
-      delete next[procId];
-      return next;
-    });
+    toast('Process stopped');
   };
 
   const handleAdd = async () => {
@@ -304,18 +294,46 @@ export function ProjectDetail() {
         </CardContent>
       </Card>
 
-      {/* Process list */}
-      <div className="space-y-1">
-        <div className="flex justify-between items-center mb-2">
-          <h3 className="font-semibold text-gray-700">Commands</h3>
+      {/* Search & Commands header */}
+      <div className="flex justify-between items-center mb-2">
+        <h3 className="font-semibold text-gray-700">Commands</h3>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="🔍 Cari command…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="text-xs pl-6 pr-6 py-1 rounded border border-gray-300 focus:outline-none focus:border-emerald-400 w-48"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <span className="text-xs text-gray-400">↕ drag to sort</span>
         </div>
+      </div>
 
         {processes.length === 0 ? (
           <p className="text-gray-400 text-sm">Belum ada command.</p>
         ) : (
           <div className="space-y-2">
-            {processes.map((proc) => (
+            {processes
+              .filter((proc) => {
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase();
+                return (
+                  proc.label.toLowerCase().includes(q) ||
+                  proc.command.toLowerCase().includes(q) ||
+                  (proc.port && String(proc.port).includes(q))
+                );
+              })
+              .map((proc) => (
               <Card
                 key={proc.id}
                 className="draggable"
@@ -523,7 +541,6 @@ export function ProjectDetail() {
             ))}
           </div>
         )}
-      </div>
     </div>
   );
 }

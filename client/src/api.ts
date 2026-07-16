@@ -134,10 +134,6 @@ export const api = {
       const data = JSON.parse(e.data);
       if (onStatus) onStatus(data.status);
     });
-    es.onerror = () => {
-      // Connection closed or error
-      es.close();
-    };
     return es;
   },
 };

@@ -72,9 +72,9 @@ async function scanFolder(folderPath) {
         const subPath = path.join(fullPath, sub.name);
         const subType = detectProjectType(subPath);
         if (subType !== 'other') {
-          // Flatten name: name = ~/scanFolderBase/subName instead of ~/scanFolderBase/intermediate/subName
-          const flatName = toRelativePath(path.join(absPath, sub.name));
-          await addProject(db, subPath, subType, scanFolderId, absPath, found, flatName);
+          // Use full path including intermediate folder for proper tree nesting
+          const name = toRelativePath(subPath);
+          await addProject(db, subPath, subType, scanFolderId, absPath, found, name);
         }
       }
     }

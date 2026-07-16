@@ -111,6 +111,7 @@ function FolderNode({
   forceExpand?: boolean;
 }) {
   const [localExpanded, setLocalExpanded] = useState(node.expanded || false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const expanded = forceExpand || localExpanded;
 
   const toggle = useCallback(() => {
@@ -125,10 +126,8 @@ function FolderNode({
     try {
       await api.startProcess(p.default_process_id);
       setRunningProject(p.id, p.default_process_id);
-      // Initial log fetch (global polling handles updates)
-      const data = await api.getLogs(p.default_process_id);
-      const all = data.lines.map(l => l.t).join('');
-      setRunningLog(p.id, all || 'Waiting for output...');
+      setTerminalOpen(true);
+      setRunningLog(p.id, '');
     } catch (err: any) {
       toast(err.message);
     }
@@ -137,10 +136,8 @@ function FolderNode({
   const stopInline = async (p: Project, processId: number) => {
     try {
       await api.stopProcess(processId);
-      await api.clearLogs(processId);
     } catch { /* ignore */ }
     setRunningProject(p.id, 0);
-    setRunningLog(p.id, '');
   };
 
   if (node.type === 'project' && node.project) {
@@ -194,8 +191,23 @@ function FolderNode({
             </button>
           )}
         </div>
-        {isRunning && log !== undefined && (
+        {terminalOpen && (
           <div className="ml-6 pl-2 pr-2 pb-2">
+            <div className="flex items-center gap-2 mb-1">
+              {!isRunning && (
+                <span className="text-xs text-gray-500">⚠ Process stopped</span>
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setTerminalOpen(false);
+                }}
+                className="text-xs ml-auto text-gray-400 hover:text-red-500 transition cursor-pointer"
+                title="Close terminal"
+              >
+                ✕
+              </button>
+            </div>
             <ProcessLogPanel
               processId={running!.processId}
               log={log}
@@ -289,6 +301,7 @@ export function Dashboard() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
   const [runningFilter, setRunningFilter] = useState<'all' | 'running' | 'stopped'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [runningProjects, setRunningProjects] = useState<Record<number, { processId: number; status: string; projectId: number }>>({});
   const [runningLogs, setRunningLogs] = useState<Record<number, string>>({});
 
@@ -386,7 +399,7 @@ export function Dashboard() {
           const all = lines.map(l => l.t).join('');
           setRunningLogs(prev => ({
             ...prev,
-            [pid]: all !== '' ? all : 'Waiting for output...',
+            [pid]: all,
           }));
           if (status !== 'running') {
             setRunningProjects(prev => {
@@ -441,7 +454,15 @@ export function Dashboard() {
     : runningFilter === 'stopped'
       ? displayedByType.filter(p => (countMap[p.id] || 0) === 0)
       : displayedByType;
-  const tree = buildTree(displayedProjects, countMap, !!subtypeFilter);
+
+  // Apply search filter
+  const searchedProjects = searchQuery
+    ? displayedProjects.filter(p =>
+        p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.path && p.path.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
+    : displayedProjects;
+  const tree = buildTree(searchedProjects, countMap, !!subtypeFilter);
 
   if (loading) return <div className="text-gray-400">Loading...</div>;
 
@@ -543,9 +564,30 @@ export function Dashboard() {
           <p className="text-sm mt-1">Go to Settings to add scan folders</p>
         </div>
       ) : (
-        <Card>
-          <CardContent className="pt-4 pb-2">
-            {tree.map((node) => (
+        <>
+          <div className="mb-4">
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+              <input
+                type="text"
+                placeholder="Search projects..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+          <Card>
+            <CardContent className="pt-4 pb-2">
+              {tree.map((node) => (
               <FolderNode
                 key={node.path}
                 node={node}
@@ -555,11 +597,12 @@ export function Dashboard() {
                 setRunningProject={setRunningProject}
                 runningLogs={runningLogs}
                 setRunningLog={setRunningLog}
-                forceExpand={runningFilter !== 'all'}
+                forceExpand={runningFilter !== 'all' || !!subtypeFilter || !!searchQuery}
               />
             ))}
           </CardContent>
         </Card>
+        </>
       )}
     </div>
   );
