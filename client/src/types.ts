@@ -41,3 +41,9 @@ export interface Logs {
   lines: LogLine[];
   status?: 'running' | 'stopped' | 'error';
 }
+
+export interface TaskStatus {
+  id: number;
+  name: string;
+  sort_order: number;
+}

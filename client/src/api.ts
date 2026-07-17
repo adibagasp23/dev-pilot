@@ -1,4 +1,4 @@
-import type { Project, Process, ScanFolder, Logs } from './types';
+import type { Project, Process, ScanFolder, Logs, TaskStatus } from './types';
 
 const BASE = '/api';
 
@@ -28,6 +28,9 @@ export const api = {
 
   stopProcess: (id: number) =>
     fetchJSON<Process>(`/processes/${id}/stop`, { method: 'POST' }),
+
+  stopAllProcesses: () =>
+    fetchJSON<{ stopped: number }>('/processes/stop-all', { method: 'POST' }),
 
   toggleProcessFavorite: (processId: number, favorite: boolean) =>
     fetchJSON<{ process: Process }>(`/processes/${processId}/favorite`, {
@@ -114,6 +117,12 @@ export const api = {
       body: JSON.stringify({ types }),
     }),
 
+  pushApk: (projectId: number) =>
+    fetchJSON<{ ok: boolean; device: string; file: string; output: string }>('/push-apk', {
+      method: 'POST',
+      body: JSON.stringify({ project_id: projectId }),
+    }),
+
   rescan: () =>
     fetchJSON<{ ok: boolean }>('/scan', { method: 'POST' }),
 
@@ -136,4 +145,42 @@ export const api = {
     });
     return es;
   },
+};
+
+export interface Task {
+  id: number;
+  project_id: number | null;
+  title: string;
+  description: string | null;
+  status: 'todo' | 'in_progress' | 'done';
+  priority: 'low' | 'medium' | 'high';
+  created_at: string;
+  updated_at: string;
+  project_name?: string;
+  project_path?: string;
+}
+
+export const tasksApi = {
+  list: (params?: { project_id?: number; status?: string }) => {
+    const qs = params ? '?' + new URLSearchParams(
+      Object.entries(params).filter(([_, v]) => v != null).map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return fetchJSON<{ tasks: Task[] }>('/tasks' + qs);
+  },
+  create: (data: { title: string; project_id?: number | null; priority?: string }) =>
+    fetchJSON<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: number, data: Partial<Pick<Task, 'title' | 'status' | 'priority' | 'project_id'>>) =>
+    fetchJSON<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  remove: (id: number) => fetchJSON<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
+};
+
+export const taskStatusesApi = {
+  list: (): Promise<{ statuses: TaskStatus[] }> =>
+    fetch('/api/task-statuses').then(r => r.json()),
+  create: (data: { name: string; sort_order?: number }): Promise<{ status: TaskStatus }> =>
+    fetch('/api/task-statuses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  update: (id: number, data: { name?: string; sort_order?: number }): Promise<{ status: TaskStatus }> =>
+    fetch(`/api/task-statuses/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }).then(r => r.json()),
+  remove: (id: number): Promise<{ success: boolean }> =>
+    fetch(`/api/task-statuses/${id}`, { method: 'DELETE' }).then(r => r.json()),
 };
