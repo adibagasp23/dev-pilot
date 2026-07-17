@@ -1,5 +1,7 @@
 import type { Project, Process, ScanFolder, Logs, TaskStatus } from './types';
 
+export type { TaskStatus };
+
 const BASE = '/api';
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
