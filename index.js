@@ -55,6 +55,14 @@ const app = express();
       }
       await db('processes').where('status', 'running').update({ status: 'stopped', pid: null, stopped_at: db.fn.now() });
     }
+
+    // Also kill any lingering processes on known ports (status=stopped tapi process masih jalan)
+    const allWithPorts = await db('processes').whereNotNull('port').where('port', '!=', '');
+    for (const proc of allWithPorts) {
+      try {
+        require('child_process').execSync(`lsof -ti:${proc.port} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' });
+      } catch {}
+    }
   } catch (err) {
     log('ERROR', 'Startup cleanup failed', { message: err.message });
   }

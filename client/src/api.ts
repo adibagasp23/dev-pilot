@@ -154,7 +154,7 @@ export interface Task {
   project_id: number | null;
   title: string;
   description: string | null;
-  status: 'todo' | 'in_progress' | 'done';
+  status: string;
   priority: 'low' | 'medium' | 'high';
   created_at: string;
   updated_at: string;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '@/api';
 import type { Process } from '@/types';
@@ -97,6 +97,25 @@ export default function Monitor() {
     api.clearLogs(pid).catch(() => {});
   };
 
+  // Group processes by their parent folder
+  const groups = useMemo(() => {
+    const map = new Map<string, RunningProcess[]>();
+    for (const proc of processes) {
+      const segs = proc.project_name.replace(/^~\//, '').split('/');
+      const group = segs.length > 1 ? segs.slice(0, -1).join(' / ') : 'general';
+      if (!map.has(group)) map.set(group, []);
+      map.get(group)!.push(proc);
+    }
+    // Sort groups: multi-folder groups first, then singles, by name
+    const sorted = [...map.entries()].sort((a, b) => {
+      const aMulti = a[1].length > 1 ? 0 : 1;
+      const bMulti = b[1].length > 1 ? 0 : 1;
+      if (aMulti !== bMulti) return aMulti - bMulti;
+      return a[0].localeCompare(b[0]);
+    });
+    return sorted;
+  }, [processes]);
+
   if (processes.length === 0) {
     return (
       <div className="flex-1 p-8 text-center text-gray-500 mt-20">
@@ -119,110 +138,168 @@ export default function Monitor() {
         <h2 className="text-lg font-semibold text-white">
           📊 Monitor — {processes.length} running
         </h2>
-        <button
-          onClick={fetchProcesses}
-          className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded hover:bg-gray-600 transition"
-        >
-          🔄 Refresh
-        </button>
+        <div className="flex gap-2">
+          {processes.length > 1 && (
+            <button
+              onClick={async () => {
+                await api.stopAllProcesses();
+                setProcesses([]);
+                setLogs({});
+                toast('All processes stopped');
+              }}
+              className="text-xs bg-red-500/20 text-red-400 px-3 py-1 rounded hover:bg-red-500/30 transition border border-red-500/30"
+            >
+              ⏹ Stop All
+            </button>
+          )}
+          <button
+            onClick={fetchProcesses}
+            className="text-xs bg-gray-700 text-gray-300 px-3 py-1 rounded hover:bg-gray-600 transition"
+          >
+            🔄 Refresh
+          </button>
+        </div>
       </div>
 
-      {processes.map((proc) => (
-        <div
-          key={proc.id}
-          className="rounded border overflow-hidden"
-          style={{ borderColor: '#30363d' }}
-        >
-          {/* Header */}
-          <div
-            className="flex items-center justify-between px-4 py-2"
-            style={{ backgroundColor: '#161b22' }}
-          >
-            <div className="flex items-center gap-3">
-              <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-              <span className="text-sm font-medium text-white">{proc.project_name}</span>
-              <span className="text-xs text-gray-400">/</span>
-              <span className="text-sm text-gray-300">{proc.label}</span>
-              {proc.port ? (
-                <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: '#0d1117', border: '1px solid #4ade80', color: '#4ade80' }}>
-                  :{proc.port}
-                </span>
-              ) : null}
-              <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded" style={{ border: '1px solid #30363d' }}>
-                {proc.project_type}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const cmd = proc.command.replace(/{PORT}/g, proc.port ? String(proc.port) : '');
-                  navigator.clipboard.writeText(cmd);
-                  toast('Command copied!');
-                }}
-                className="text-gray-500 hover:text-emerald-400 transition text-xs"
-                title="Copy command"
-              >
-                📋
-              </button>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(logs[proc.id] || '');
-                  toast('Log copied!');
-                }}
-                className="text-xs text-gray-500 hover:text-emerald-400 transition"
-                title="Copy all log"
-              >
-                📋 All
-              </button>
-              <button
-                onClick={() => handleClear(proc.id)}
-                className="text-xs text-gray-500 hover:text-red-400 transition"
-                title="Clear terminal"
-              >
-                🗑 Clear
-              </button>
-              <button
-                onClick={() => handleStop(proc.id)}
-                className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 transition"
-              >
-                Stop
-              </button>
-            </div>
-          </div>
-
-          {/* Log area */}
-          <pre
-            ref={(el) => { preRefs.current[proc.id] = el; }}
-            onScroll={(e) => handleLogScroll(proc.id, e.currentTarget)}
-            className="text-xs p-4 overflow-auto max-h-[30vh] min-h-[8rem] font-mono leading-relaxed select-text"
-            style={{
-              backgroundColor: '#0d1117',
-              color: '#4ade80',
+      {groups.map(([groupName, procs]) => (
+        <div key={groupName}>
+          {/* Group header */}
+          <a
+            href={`/?group=${encodeURIComponent(groupName)}`}
+            onClick={(e) => { e.preventDefault();
+              // Navigate to the first project in the group
+              if (procs[0]) navigate(`/project/${procs[0].project_id}`);
             }}
+            className="flex items-center gap-2 px-1 py-2 mb-1 group cursor-pointer"
           >
-            {logs[proc.id] || 'Waiting for output...'}
-          </pre>
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest group-hover:text-emerald-400 transition">
+              {groupName}
+            </span>
+            <span className="text-[10px] text-gray-600 font-mono">({procs.length})</span>
+            <div className="flex-1 border-b border-white/5" />
+            <span className="text-[10px] text-gray-600 opacity-0 group-hover:opacity-100 transition">
+              📂
+            </span>
+          </a>
 
-          {/* Quick actions + Input */}
-          <div
-            className="px-3 py-2 space-y-2"
-            style={{
-              backgroundColor: '#0d1117',
-              borderTop: '1px solid #21262d',
-            }}
-          >
-            {proc.project_type === 'flutter' && (
-              <FlutterQuickActions
-                processId={proc.id}
-                onSend={(pid, key) => api.sendInput(pid, key).catch(() => {})}
-              />
-            )}
-            <TerminalInput
-              processId={proc.id}
-              onSend={(pid, val) => api.sendInput(pid, val).catch(() => {})}
-            />
-          </div>
+          {procs.map((proc) => (
+            <div
+              key={proc.id}
+              className="rounded border overflow-hidden mb-3"
+              style={{ borderColor: '#30363d' }}
+            >
+              {/* Header */}
+              <div
+                className="flex items-center justify-between px-4 py-2"
+                style={{ backgroundColor: '#161b22' }}
+              >
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`/project/${proc.project_id}`}
+                        onClick={(e) => { e.preventDefault(); navigate(`/project/${proc.project_id}`); }}
+                        className="text-sm font-medium text-white hover:text-emerald-400 transition cursor-pointer"
+                      >
+                        {proc.project_name.split('/').pop()}
+                      </a>
+                      <span className="text-xs text-gray-400">/</span>
+                      <span className="text-sm text-gray-300">{proc.label}</span>
+                      {proc.port ? (
+                        <span className="text-xs font-mono px-1.5 py-0.5 rounded" style={{ background: '#0d1117', border: '1px solid #4ade80', color: '#4ade80' }}>
+                          :{proc.port}
+                        </span>
+                      ) : null}
+                      <span className="text-xs text-gray-500 px-1.5 py-0.5 rounded" style={{ border: '1px solid #30363d' }}>
+                        {proc.project_type}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500">{proc.project_name.replace(/^~\//, '')}</span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const cmd = proc.command.replace(/{PORT}/g, proc.port ? String(proc.port) : '');
+                      const fullCmd = `cd ${proc.project_name.replace(/^~/, '$HOME')} && ${cmd}`;
+                      navigator.clipboard.writeText(fullCmd);
+                      toast('Copied: ' + fullCmd.slice(0, 60) + (fullCmd.length > 60 ? '…' : ''));
+                    }}
+                    className="text-gray-500 hover:text-emerald-400 transition text-xs"
+                    title="Copy command"
+                  >
+                    📋
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(logs[proc.id] || '');
+                      toast('Log copied!');
+                    }}
+                    className="text-xs text-gray-500 hover:text-emerald-400 transition"
+                    title="Copy all log"
+                  >
+                    📋 All
+                  </button>
+                  <button
+                    onClick={() => handleClear(proc.id)}
+                    className="text-xs text-gray-500 hover:text-red-400 transition"
+                    title="Clear terminal"
+                  >
+                    🗑 Clear
+                  </button>
+                  <a
+                    href={`/project/${proc.project_id}`}
+                    onClick={(e) => { e.preventDefault(); navigate(`/project/${proc.project_id}`); }}
+                    className="text-xs text-gray-500 hover:text-emerald-400 transition"
+                    title="Open project"
+                  >
+                    📂
+                  </a>
+                  <button
+                    onClick={() => handleStop(proc.id)}
+                    className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 transition"
+                  >
+                    Stop
+                  </button>
+                </div>
+              </div>
+
+              {/* Log area */}
+              <pre
+                ref={(el) => { preRefs.current[proc.id] = el; }}
+                onScroll={(e) => handleLogScroll(proc.id, e.currentTarget)}
+                className="text-xs p-4 overflow-auto max-h-[30vh] min-h-[8rem] font-mono leading-relaxed select-text"
+                style={{
+                  backgroundColor: '#0d1117',
+                  color: '#4ade80',
+                }}
+              >
+                {logs[proc.id] || 'Waiting for output...'}
+              </pre>
+
+              {/* Quick actions + Input */}
+              <div
+                className="px-3 py-2 space-y-2"
+                style={{
+                  backgroundColor: '#0d1117',
+                  borderTop: '1px solid #21262d',
+                }}
+              >
+                {proc.project_type === 'flutter' && (
+                  <FlutterQuickActions
+                    processId={proc.id}
+                    onSend={(pid, key) => api.sendInput(pid, key).catch(() => {})}
+                  />
+                )}
+                <TerminalInput
+                  processId={proc.id}
+                  onSend={(pid, val) => api.sendInput(pid, val).catch(() => {})}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       ))}
     </div>

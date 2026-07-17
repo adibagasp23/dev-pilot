@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Task, TaskStatus } from '../types';
+import type { Task, TaskStatus } from '../api';
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: 'bg-red-500/10 text-red-400 border-red-500/30',
