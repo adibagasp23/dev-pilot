@@ -792,7 +792,7 @@ router.delete('/tasks/:id', async (req, res) => {
 });
 
 // --- Task Statuses ---
-router.get('/api/task-statuses', async (req, res) => {
+router.get('/task-statuses', async (req, res) => {
   try {
     const db = getDB();
     const statuses = await db('task_statuses').orderBy('sort_order', 'asc');
@@ -802,7 +802,7 @@ router.get('/api/task-statuses', async (req, res) => {
   }
 });
 
-router.post('/api/task-statuses', async (req, res) => {
+router.post('/task-statuses', async (req, res) => {
   try {
     const db = getDB();
     const { name, sort_order } = req.body;
@@ -819,7 +819,7 @@ router.post('/api/task-statuses', async (req, res) => {
   }
 });
 
-router.put('/api/task-statuses/:id', async (req, res) => {
+router.put('/task-statuses/:id', async (req, res) => {
   try {
     const db = getDB();
     const { id } = req.params;
@@ -838,7 +838,7 @@ router.put('/api/task-statuses/:id', async (req, res) => {
   }
 });
 
-router.delete('/api/task-statuses/:id', async (req, res) => {
+router.delete('/task-statuses/:id', async (req, res) => {
   try {
     const db = getDB();
     const { id } = req.params;
