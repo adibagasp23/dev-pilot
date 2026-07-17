@@ -89,7 +89,7 @@ export default function KanbanBoard({ tasks, statuses, onStatusChange, onTaskCli
                   draggable
                   onDragStart={(e) => handleDragStart(e, task)}
                   onClick={() => onTaskClick(task)}
-                  className={`relative group rounded-xl border bg-[#0d1117] p-3.5 cursor-grab active:cursor-grabbing transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 hover:border-gray-500/80 overflow-hidden ${
+                  className={`relative group rounded-xl border bg-black p-3.5 cursor-grab active:cursor-grabbing transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/30 hover:border-gray-500/80 overflow-hidden ${
                     statusKey(col.name) === 'done'
                       ? 'border-gray-700/40 opacity-60'
                       : 'border-gray-700/60 hover:border-gray-500/80'
