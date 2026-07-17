@@ -98,11 +98,13 @@ export default function KanbanBoard({ tasks, statuses, onStatusChange, onTaskCli
                   {/* Priority left accent bar */}
                   <div className={`absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-gradient-to-b ${priorityGradient}`} />
 
-                  <p className={`text-sm leading-snug mb-2.5 pr-5 ${
+                  <p className={`text-sm leading-snug pr-5 ${
                     statusKey(col.name) === 'done' ? 'line-through text-gray-500' : 'text-gray-100 font-medium'
                   }`}>
                     {task.title}
                   </p>
+
+                  <div className="border-t border-gray-700/30 my-2" />
 
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-md ${PRIORITY_BG[task.priority] || PRIORITY_BG.medium}`}>
