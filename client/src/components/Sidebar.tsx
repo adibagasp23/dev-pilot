@@ -107,6 +107,9 @@ export function Sidebar() {
                 <span className="text-gray-500 group-hover:text-gray-300 text-xs block truncate">
                   📌 {proc.label}
                 </span>
+                <span className="inline-block bg-white text-black text-[10px] font-medium px-1.5 py-0.5 rounded mt-0.5">
+                  {proc.project_name.split('/').slice(-2).join(' > ')}
+                </span>
               </a>
             ))}
           </>

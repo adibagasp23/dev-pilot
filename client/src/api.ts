@@ -21,7 +21,7 @@ export const api = {
     ),
 
   getProject: (id: number) =>
-    fetchJSON<{ project: Project; processes: Process[] }>(`/projects/${id}`),
+    fetchJSON<{ project: Project; processes: Process[]; siblings: { id: number; name: string; type: string; is_active: boolean }[] }>(`/projects/${id}`),
 
   startProcess: (id: number) =>
     fetchJSON<Process>(`/processes/${id}/start`, { method: 'POST' }),

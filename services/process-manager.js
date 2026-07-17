@@ -1,8 +1,70 @@
 // services/process-manager.js
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { getDB } = require('../database/db');
+
+// Kill a process and all its descendants recursively
+function killProcessTree(pid, signal = 'SIGTERM') {
+  try {
+    // Get all child PIDs recursively
+    const children = getChildPids(pid);
+    // Kill children first (deepest first via reverse)
+    for (const childPid of children.reverse()) {
+      try { process.kill(childPid, signal); } catch {}
+    }
+    // Kill the parent
+    try { process.kill(pid, signal); } catch {}
+  } catch {}
+}
+
+function getChildPids(pid) {
+  const result = [];
+  try {
+    const out = execSync(`pgrep -P ${pid}`, { stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).toString().trim();
+    if (!out) return result;
+    const pids = out.split('\n').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
+    for (const childPid of pids) {
+      result.push(childPid);
+      // Recursively get grandchildren
+      const grandChildren = getChildPids(childPid);
+      result.push(...grandChildren);
+    }
+  } catch {}
+  return result;
+}
+
+// Kill any remaining processes related to a project (orphans)
+function killProjectProcesses(projectPath) {
+  try {
+    const ownPid = process.pid;
+    // Use lsof to find processes with the project directory as cwd (reliable, no self-match)
+    const out = execSync(
+      `lsof +d "${projectPath}" -t 2>/dev/null`,
+      { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }
+    ).toString().trim();
+    if (!out) return;
+    const pids = out.split('\n').map(p => parseInt(p.trim())).filter(p => !isNaN(p) && p !== ownPid);
+    if (pids.length === 0) return;
+    for (const pid of pids) {
+      try { process.kill(pid, 'SIGTERM'); } catch {}
+    }
+    // SIGKILL orphans after 3s
+    setTimeout(() => {
+      try {
+        const out2 = execSync(
+          `lsof +d "${projectPath}" -t 2>/dev/null`,
+          { stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }
+        ).toString().trim();
+        if (!out2) return;
+        const pids2 = out2.split('\n').map(p => parseInt(p.trim())).filter(p => !isNaN(p) && p !== ownPid);
+        for (const pid of pids2) {
+          try { process.kill(pid, 'SIGKILL'); } catch {}
+        }
+      } catch {}
+    }, 3000);
+  } catch {}
+}
 
 // Logger (same format as index.js)
 const logFile = path.join(__dirname, '..', 'logs', 'app.log');
@@ -126,10 +188,13 @@ async function startProcess(processId) {
     command = command.replace(/{PORT}/g, String(proc.port));
   }
 
-  const child = spawn(command, [], {
+  // Wrap in SIGPIPE-ignoring shell to prevent crash when parent dies (e.g., server restart)
+  const wrappedCmd = `trap '' PIPE; exec ${command}`;
+  const child = spawn(wrappedCmd, [], {
     cwd: proc.project_path,
     stdio: ['pipe', 'pipe', 'pipe'],
     shell: true,
+    detached: true,
   });
 
   const pid = child.pid;
@@ -210,23 +275,37 @@ async function getLogs(processId) {
 
 // Clear logs for a process
 function clearLogs(processId) {
-  processLogs.delete(processId);
+  // Reset log buffer, bukan delete — biar output baru tetap tertangkap
+  const existing = processLogs.get(processId);
+  if (existing) {
+    existing.lines = [];
+  } else {
+    processLogs.set(processId, { lines: [] });
+  }
 }
 
 async function stopProcess(processId) {
   log('INFO', `stopProcess(${processId})`);
   const db = getDB();
-  const proc = await db('processes').where('id', processId).first();
+  const proc = await db('processes as p')
+    .join('projects as pr', 'pr.id', 'p.project_id')
+    .where('p.id', processId)
+    .select('p.*', 'pr.path as project_path')
+    .first();
 
   if (!proc) throw new Error('Process not found');
   if (proc.status !== 'running') throw new Error('Process is not running');
 
   const child = runningProcesses.get(processId);
   if (child) {
-    // Send SIGINT (like Ctrl+C) to the process group
-    try { process.kill(-child.pid, 'SIGINT'); } catch {
-      try { process.kill(child.pid, 'SIGINT'); } catch {}
-    }
+    // Kill entire process tree recursively
+    await killProcessTree(child.pid, 'SIGTERM');
+    // Also kill orphaned processes related to this project
+    killProjectProcesses(proc.project_path);
+    // Fallback: SIGKILL after 5s
+    setTimeout(async () => {
+      try { await killProcessTree(child.pid, 'SIGKILL'); } catch {}
+    }, 5000);
     runningProcesses.delete(processId);
     const logs = processLogs.get(processId);
     if (logs) pushLine(logs, { s: 'i', t: '\n⚠ Process stopped by user\n' }, processId);
@@ -263,9 +342,7 @@ async function getProcessStatus(processId) {
 
 function cleanup() {
   for (const [id, child] of runningProcesses) {
-    try { process.kill(-child.pid, 'SIGTERM'); } catch {
-      try { process.kill(child.pid, 'SIGTERM'); } catch {}
-    }
+    killProcessTree(child.pid, 'SIGTERM');
   }
   runningProcesses.clear();
 }

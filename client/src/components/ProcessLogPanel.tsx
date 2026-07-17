@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react';
 import FlutterQuickActions from './FlutterQuickActions';
 import TerminalInput from './TerminalInput';
+import DebugOverlayBadges from './DebugOverlayBadges';
 
 interface ProcessLogPanelProps {
   processId: number;
@@ -82,6 +83,8 @@ export default function ProcessLogPanel({ processId, log, projectType, onSend, o
       >
         {log || 'Waiting for output...'}
       </pre>
+      {/* Debug overlay badges */}
+      <DebugOverlayBadges log={log} />
       {/* Quick action buttons */}
       {(projectType === 'flutter') && (
         <div

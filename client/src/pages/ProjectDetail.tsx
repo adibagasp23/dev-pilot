@@ -20,6 +20,7 @@ export function ProjectDetail() {
   const [logs, setLogs] = useState<Record<number, string>>({});
   const [openLogs, setOpenLogs] = useState<Record<number, boolean>>({});
   const [searchQuery, setSearchQuery] = useState('');
+  const [siblings, setSiblings] = useState<{ id: number; name: string; type: string; is_active: boolean }[]>([]);
   const dragItem = useRef<number | null>(null);
   const canDrag = useRef(false);
   const processesRef = useRef<Process[]>([]);
@@ -28,6 +29,7 @@ export function ProjectDetail() {
     if (!id) return;
     api.getProject(parseInt(id)).then((data) => {
       setProject(data.project);
+      setSiblings(data.siblings || []);
       // Sort: favorites first, then by sort_order
       const sorted = [...data.processes].sort((a, b) => {
         if (a.is_favorite && !b.is_favorite) return -1;
@@ -257,6 +259,37 @@ export function ProjectDetail() {
         >
           {project.type.charAt(0).toUpperCase() + project.type.slice(1)}
         </Badge>
+        {/* Sibling tabs */}
+        {siblings.length > 0 && (
+          <div className="flex gap-1 mt-3 flex-wrap">
+            {siblings.map((s) => (
+              <Link
+                key={s.id}
+                to={`/project/${s.id}`}
+                className={`px-3 py-1 rounded text-sm font-medium transition ${
+                  s.is_active
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                <span
+                  className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle"
+                  style={{
+                    backgroundColor:
+                      s.type === 'flutter' ? '#3b82f6' :
+                      s.type === 'laravel' ? '#f97316' :
+                      s.type === 'next' ? '#6b7280' :
+                      s.type === 'agent' ? '#8b5cf6' :
+                      s.type === 'rust' ? '#ef4444' :
+                      s.type === 'strapi' ? '#10b981' :
+                      '#9ca3af'
+                  }}
+                />
+                {s.name.replace(/^.*\//, '')}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Add command */}

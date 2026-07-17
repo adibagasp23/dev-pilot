@@ -91,7 +91,22 @@ router.get('/projects/:id', async (req, res) => {
   }
 
   const processes = await db('processes').where('project_id', project.id).orderBy('sort_order', 'asc');
-  res.json({ project, processes });
+
+  // Find sibling projects (same parent folder)
+  let siblings = [];
+  if (project.path) {
+    const parentDir = path.dirname(project.path);
+    const folderProjects = await db('projects')
+      .where('path', 'like', parentDir + '/%')
+      .orderBy('type', 'name')
+      .select('id', 'name', 'type');
+    siblings = folderProjects.map(p => ({
+      ...p,
+      is_active: p.id === project.id
+    }));
+  }
+
+  res.json({ project, processes, siblings });
 });
 
 // Set default process for a project
