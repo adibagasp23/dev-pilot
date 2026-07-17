@@ -6,6 +6,9 @@ const { scanAllFolders, scanFolder } = require('../services/scanner');
 const { startProcess, stopProcess, sendInput, getLogs, clearLogs, subscribeSSE, unsubscribeSSE, processLogs, runningProcesses } = require('../services/process-manager');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
+
+const upload = multer({ dest: path.join(__dirname, '..', 'uploads') });
 
 const APP_TYPES_PATH = path.join(__dirname, '..', 'config', 'app-types.json');
 
@@ -187,6 +190,20 @@ router.post('/processes/:id/start', async (req, res) => {
     const db = getDB();
     const proc = await db('processes').where('id', parseInt(req.params.id)).first();
     res.json(proc);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Stop all running processes
+router.post('/processes/stop-all', async (req, res) => {
+  try {
+    const db = getDB();
+    const running = await db('processes').where('status', 'running');
+    for (const proc of running) {
+      await stopProcess(proc.id);
+    }
+    res.json({ stopped: running.length });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -417,5 +434,425 @@ router.post('/scan', async (req, res) => {
   await scanAllFolders();
   res.json({ ok: true });
 });
+
+// Get recent APK files from known projects
+router.get('/push-apk-files', async (req, res) => {
+  const db = getDB();
+  const projects = await db('projects').where('type', 'flutter').orderBy('name');
+  const groups = [];
+  for (const p of projects) {
+    const apkDir = path.join(p.path, 'build', 'app', 'outputs', 'flutter-apk');
+    try {
+      if (fs.existsSync(apkDir)) {
+        let files = fs.readdirSync(apkDir)
+          .filter(f => f.endsWith('.apk') || f.endsWith('.aab'))
+          .map(f => ({ name: f, path: path.join(apkDir, f), mtime: fs.statSync(path.join(apkDir, f)).mtimeMs }));
+        // Also check bundle/ subdirs for .aab
+        const bundleDir = path.join(p.path, 'build', 'app', 'outputs', 'bundle');
+        if (fs.existsSync(bundleDir)) {
+          for (const flavor of fs.readdirSync(bundleDir)) {
+            const flavorDir = path.join(bundleDir, flavor);
+            if (fs.statSync(flavorDir).isDirectory()) {
+              for (const f of fs.readdirSync(flavorDir).filter(f => f.endsWith('.aab'))) {
+                const fp = path.join(flavorDir, f);
+                files.push({ name: f, path: fp, mtime: fs.statSync(fp).mtimeMs });
+              }
+            }
+          }
+        }
+        files.sort((a, b) => b.mtime - a.mtime);
+        if (files.length > 0) {
+          groups.push({
+            project: p.name.replace(/^~\//, ''),
+            latestMtime: files[0].mtime,
+            files: files.map(f => ({ path: f.path, name: f.name, time: new Date(f.mtime).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) }))
+          });
+        }
+      }
+    } catch {}
+  }
+  groups.sort((a, b) => b.latestMtime - a.latestMtime);
+  res.json({ groups });
+});
+
+// Get connected ADB devices
+router.get('/adb-devices', async (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    const output = execSync('adb devices', { encoding: 'utf8', timeout: 5000 });
+    const devices = output.split('\n')
+      .slice(1)
+      .filter(l => l.includes('\tdevice') || l.includes('\toffline') || l.includes('\tunauthorized'))
+      .map(l => {
+        const [id, status] = l.split('\t');
+        return { id, status: status.trim() };
+      });
+
+    // Ambil model name untuk device yang connected
+    for (const d of devices) {
+      if (d.status === 'device') {
+        try {
+          const model = execSync(`adb -s ${d.id} shell getprop ro.product.model 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim().replace(/\r/g, '');
+          if (model) d.model = model;
+        } catch {}
+      }
+    }
+
+    res.json({ devices });
+  } catch (err) {
+    res.json({ devices: [], error: err.message });
+  }
+});
+
+// Scan network for ADB devices (port 5555)
+router.post('/adb-scan', async (req, res) => {
+  const { execSync } = require('child_process');
+  const os = require('os');
+
+  try {
+    // Dapetin IP lokal + subnet
+    const interfaces = os.networkInterfaces();
+    let localIp = '';
+    for (const name of Object.keys(interfaces)) {
+      for (const iface of interfaces[name] || []) {
+        if (iface.family === 'IPv4' && !iface.internal && name.startsWith('en')) {
+          localIp = iface.address;
+          break;
+        }
+      }
+      if (localIp) break;
+    }
+
+    if (!localIp) {
+      // fallback: pake hostname -I atau ipconfig
+      try {
+        localIp = execSync('ipconfig getifaddr en0', { encoding: 'utf8', timeout: 3000 }).trim();
+      } catch {}
+    }
+
+    if (!localIp) {
+      return res.json({ devices: [], error: 'Gagal deteksi IP lokal' });
+    }
+
+    const subnet = localIp.substring(0, localIp.lastIndexOf('.') + 1);
+
+    // Ping scan parallel
+    const tmpDir = os.tmpdir();
+    const pingFile = `${tmpDir}/adb_ping_${Date.now()}`;
+    const portFile = `${tmpDir}/adb_port_${Date.now()}`;
+
+    // Ping semua IP di subnet (parallel)
+    const pingScript = `
+for i in $(seq 1 254); do
+  (ping -c1 -W1 ${subnet}$i >/dev/null 2>&1 && echo $i >> ${pingFile}) &
+  if [ \$((i % 20)) -eq 0 ]; then wait; fi
+done
+wait
+`;
+    execSync(pingScript, { timeout: 15000, shell: '/bin/bash' });
+
+    // Baca hasil ping
+    let activeHosts = [];
+    try {
+      const data = fs.readFileSync(pingFile, 'utf8').trim();
+      activeHosts = data.split('\n').filter(Boolean);
+    } catch {}
+    try { fs.unlinkSync(pingFile); } catch {}
+
+    if (activeHosts.length === 0) {
+      return res.json({ devices: [], hosts: 0 });
+    }
+
+    // Cek port 5555 parallel via node
+    const net = require('net');
+    const adbHosts = [];
+
+    await Promise.all(activeHosts.map(async (num) => {
+      const ip = subnet + num;
+      try {
+        await new Promise((resolve, reject) => {
+          const sock = new net.Socket();
+          sock.setTimeout(1000);
+          sock.on('connect', () => { sock.destroy(); resolve(undefined); });
+          sock.on('error', reject);
+          sock.on('timeout', reject);
+          sock.connect(5555, ip);
+        });
+        adbHosts.push(ip);
+      } catch {}
+    }));
+
+    try { fs.unlinkSync(portFile); } catch {}
+
+    // Ambil hostname dari ARP
+    let arpOutput = '';
+    try { arpOutput = execSync('arp -a -n 2>/dev/null || arp -a 2>/dev/null', { encoding: 'utf8', timeout: 3000 }); } catch {}
+
+    const devices = adbHosts.map(ip => {
+      const match = arpOutput.match(new RegExp(ip.replace(/\./g, '\\.') + '.*'));
+      const hostname = match ? match[0].split(' ')[0].replace(/\(.*\)/, '').trim() : '—';
+      return { id: ip, status: 'discovered', hostname };
+    });
+
+    res.json({ devices, hosts: activeHosts.length });
+  } catch (err) {
+    res.json({ devices: [], error: err.message });
+  }
+});
+
+// Connect to ADB device via WiFi
+router.post('/adb-connect', async (req, res) => {
+  const { ip } = req.body;
+  if (!ip) return res.status(400).json({ error: 'IP required' });
+
+  const { execSync } = require('child_process');
+  try {
+    // Disconnect dulu (ignore error kalo belum connect)
+    try { execSync('adb disconnect ' + ip, { timeout: 3000, shell: '/bin/bash' }); } catch {}
+    const result = execSync('adb connect ' + ip + ':5555', { encoding: 'utf8', timeout: 10000, shell: '/bin/bash' });
+    const ok = result.toLowerCase().includes('connected');
+    res.json({ ok, output: result.trim() });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// Disconnect all ADB devices
+router.post('/adb-disconnect-all', async (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    execSync('adb disconnect', { timeout: 5000 });
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// Push APK to ADB device (by path or file upload)
+router.post('/push-apk', upload.single('apk'), async (req, res) => {
+  const { spawn, execSync } = require('child_process');
+  let apkPath = '';
+  let apkName = '';
+  const deviceId = req.body.device || '';
+  const targetDir = req.body.target || '/sdcard/Android/';
+
+  // Prioritaskan file upload
+  if (req.file) {
+    apkPath = req.file.path;
+    apkName = req.file.originalname;
+  } else if (req.body.path) {
+    const p = req.body.path.replace(/^~/, require('os').homedir());
+    if (!fs.existsSync(p)) return res.status(400).json({ error: 'File not found: ' + p });
+    apkPath = p;
+    apkName = path.basename(p);
+  } else {
+    return res.status(400).json({ error: 'Provide apk path or upload file' });
+  }
+
+  log('INFO', 'Pushing APK', { device: deviceId, apk: apkName });
+
+  try {
+    let finalDevice = deviceId;
+    if (!finalDevice) {
+      const output = execSync('adb devices', { encoding: 'utf8', timeout: 5000 });
+      const lines = output.split('\n').filter(l => l.includes('\tdevice'));
+      if (lines.length === 0) return res.status(400).json({ error: 'No ADB device connected' });
+      finalDevice = lines[0].split('\t')[0];
+    }
+
+    // Set headers for streaming
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    // Buat direktori target
+    res.write('📁 Membuat direktori ' + targetDir + '...\n');
+    try {
+      execSync('adb -s ' + finalDevice + ' shell mkdir -p "' + targetDir + '"', { timeout: 5000 });
+      res.write('✅ Direktori siap\n');
+    } catch (e) {
+      res.write('⚠️ Gagal buat direktori: ' + e.message + '\n');
+    }
+
+    res.write('🚀 Push ' + apkName + ' ke ' + finalDevice + ':' + targetDir + '\n');
+
+    // Spawn ADB push untuk streaming output
+    const child = spawn('adb', ['-s', finalDevice, 'push', apkPath, targetDir]);
+    let fullOutput = '';
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      fullOutput += text;
+      res.write(text);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      fullOutput += text;
+      res.write(text);
+    });
+
+    await new Promise((resolve, reject) => {
+      child.on('close', (code) => {
+        if (code === 0) {
+          res.write('\n✅ Push selesai: ' + apkName + '\n');
+          resolve(undefined);
+        } else {
+          res.write('\n❌ Push gagal (exit code ' + code + ')\n');
+          reject(new Error('Exit code ' + code));
+        }
+      });
+      child.on('error', (err) => {
+        res.write('\n❌ Error: ' + err.message + '\n');
+        reject(err);
+      });
+    });
+
+    // Bersihin upload temp file
+    if (req.file) { try { fs.unlinkSync(apkPath); } catch {} }
+    log('INFO', 'Push success', { device: finalDevice, apk: apkName });
+    res.end();
+  } catch (err) {
+    log('ERROR', 'Push failed', { error: err.message });
+    if (req.file) { try { fs.unlinkSync(apkPath); } catch {} }
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    } else {
+      res.write('\n❌ ' + err.message + '\n');
+      res.end();
+    }
+  }
+});
+
+
+// Tasks API
+router.get('/tasks', async (req, res) => {
+  try {
+    const db = getDB();
+    let query = db('tasks as t')
+      .leftJoin('projects as p', 'p.id', 't.project_id')
+      .select('t.*', 'p.name as project_name', 'p.path as project_path');
+
+    if (req.query.project_id) {
+      query = query.where('t.project_id', parseInt(req.query.project_id));
+    }
+    if (req.query.status) {
+      query = query.where('t.status', req.query.status);
+    }
+
+    const tasks = await query.orderBy('t.created_at', 'desc');
+    res.json({ tasks });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/tasks', async (req, res) => {
+  try {
+    const db = getDB();
+    const { title, project_id, priority } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title is required' });
+    const [id] = await db('tasks').insert({
+      title,
+      project_id: project_id || null,
+      priority: priority || 'medium',
+      status: 'todo',
+    });
+    const task = await db('tasks').where('id', id).first();
+    res.json(task);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.put('/tasks/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const { title, status, priority, project_id } = req.body;
+    const update = { updated_at: db.fn.now() };
+    if (title !== undefined) update.title = title;
+    if (status !== undefined) update.status = status;
+    if (priority !== undefined) update.priority = priority;
+    if (project_id !== undefined) update.project_id = project_id;
+    await db('tasks').where('id', req.params.id).update(update);
+    const task = await db('tasks').where('id', req.params.id).first();
+    res.json(task);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/tasks/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    await db('tasks').where('id', req.params.id).delete();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// --- Task Statuses ---
+router.get('/api/task-statuses', async (req, res) => {
+  try {
+    const db = getDB();
+    const statuses = await db('task_statuses').orderBy('sort_order', 'asc');
+    res.json({ statuses });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/api/task-statuses', async (req, res) => {
+  try {
+    const db = getDB();
+    const { name, sort_order } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+    const finalSortOrder = parseInt(sort_order, 10);
+    const [id] = await db('task_statuses').insert({
+      name: name.trim(),
+      sort_order: isNaN(finalSortOrder) ? 0 : finalSortOrder,
+    });
+    const status = await db('task_statuses').where('id', id).first();
+    res.json({ status });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put('/api/task-statuses/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const { id } = req.params;
+    const { name, sort_order } = req.body;
+    if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'Name cannot be empty' });
+    const update = {};
+    if (name !== undefined) update.name = name.trim();
+    if (sort_order !== undefined) update.sort_order = sort_order;
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: 'No fields to update' });
+    update.updated_at = db.fn.now();
+    await db('task_statuses').where('id', id).update(update);
+    const status = await db('task_statuses').where('id', id).first();
+    res.json({ status });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.delete('/api/task-statuses/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const { id } = req.params;
+    const status = await db('task_statuses').where('id', id).first();
+    if (!status) return res.status(404).json({ error: 'Status not found' });
+    const statusKey = status.name.toLowerCase().replace(/\s+/g, '_');
+    const taskCount = await db('tasks').where('status', statusKey).count('id as c').first();
+    if (taskCount.c > 0) return res.status(400).json({ error: `Cannot delete: ${taskCount.c} task(s) use this status` });
+    await db('task_statuses').where('id', id).delete();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 module.exports = router;
