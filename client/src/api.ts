@@ -156,6 +156,7 @@ export interface Task {
   description: string | null;
   status: string;
   priority: 'low' | 'medium' | 'high';
+  due_date: string | null;
   created_at: string;
   updated_at: string;
   project_name?: string;
@@ -169,11 +170,13 @@ export const tasksApi = {
     ).toString() : '';
     return fetchJSON<{ tasks: Task[] }>('/tasks' + qs);
   },
-  create: (data: { title: string; project_id?: number | null; priority?: string }) =>
+  create: (data: { title: string; project_id?: number | null; priority?: string; due_date?: string | null }) =>
     fetchJSON<Task>('/tasks', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: number, data: Partial<Pick<Task, 'title' | 'status' | 'priority' | 'project_id'>>) =>
+  update: (id: number, data: Partial<Pick<Task, 'title' | 'status' | 'priority' | 'project_id' | 'due_date' | 'description'>>) =>
     fetchJSON<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   remove: (id: number) => fetchJSON<{ ok: boolean }>(`/tasks/${id}`, { method: 'DELETE' }),
+  reorder: (status: string, taskIds: number[]) =>
+    fetchJSON<{ ok: boolean }>('/tasks/reorder', { method: 'POST', body: JSON.stringify({ status, taskIds }) }),
 };
 
 export const taskStatusesApi = {

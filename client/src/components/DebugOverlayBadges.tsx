@@ -17,30 +17,30 @@ export default function DebugOverlayBadges({ log }: Props) {
     if (!log) return { overlay: null, sections: [] };
 
     const lines = log.split('\n');
-    let foundOverlay = false;
     const seenSections = new Set<string>();
 
+    // Scan backwards: first find the latest overlay, then collect sections
+    // that belong to that overlay (stop at previous overlay)
     for (let i = lines.length - 1; i >= 0; i--) {
       const line = lines[i];
 
-      if (!foundOverlay) {
-        const overlayMatch = line.match(/\[DebugOverlay\]\s+📁\s+(\S+)\s+\|\s+(\S+)/);
+      if (!overlay) {
+        // Find the most recent [📁 Overlay] first
+        const overlayMatch = line.match(/(?:I\/flutter\s*\(\d+\)\s*:)?\s*\[📁\s*Overlay\]\s+(\S+)\s+\|\s+(\S+)/);
         if (overlayMatch) {
           overlay = { file: overlayMatch[1], route: overlayMatch[2] };
-          foundOverlay = true;
-          continue;
         }
+        continue;
       }
 
-      if (foundOverlay) {
-        if (line.includes('[DebugOverlay]')) break;
+      // Once overlay found, stop at previous overlay
+      if (line.includes('[📁 Overlay]')) break;
 
-        const sectionMatch = line.match(/\[DebugSection\]\s+📄\s+(\S+)/);
-        if (sectionMatch && !seenSections.has(sectionMatch[1])) {
-          seenSections.add(sectionMatch[1]);
-          sections.unshift(sectionMatch[1]);
-          continue;
-        }
+      // Collect sections within this overlay's scope
+      const sectionMatch = line.match(/(?:I\/flutter\s*\(\d+\)\s*:)?\s*\[📄\s*Section\]\s+(\S+)/);
+      if (sectionMatch && !seenSections.has(sectionMatch[1])) {
+        seenSections.add(sectionMatch[1]);
+        sections.unshift(sectionMatch[1]);
       }
     }
 
@@ -77,13 +77,12 @@ export default function DebugOverlayBadges({ log }: Props) {
         </button>
       )}
 
-      {/* Section badge — copy overlay > section */}
-      {overlay &&
-        sections.map((file) => (
+      {/* Section badges — copy overlay > section */}
+      {sections.length > 0 && sections.map((file) => (
           <button
             key={file}
-            onClick={() => navigator.clipboard.writeText(`${overlay.file} > ${file}`)}
-            title={`Click to copy: ${overlay.file} > ${file}`}
+            onClick={() => navigator.clipboard.writeText(overlay ? `${overlay.file} > ${file}` : file)}
+            title={`Click to copy: ${overlay ? `${overlay.file} > ` : ''}${file}`}
             className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded cursor-pointer transition hover:opacity-80 active:scale-95"
             style={{
               backgroundColor: '#1a3a2a',

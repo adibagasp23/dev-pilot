@@ -6,6 +6,7 @@ import { Settings } from './pages/Settings';
 import Monitor from './pages/Monitor';
 import PushApk from './pages/PushApk';
 import Tasks from './pages/Tasks';
+import MediaLibrary from './pages/MediaLibrary';
 import { Snackbar } from './components/Snackbar';
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/monitor" element={<Monitor />} />
             <Route path="/push-apk" element={<PushApk />} />
             <Route path="/tasks" element={<Tasks />} />
+            <Route path="/media" element={<MediaLibrary />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>

@@ -1,23 +1,31 @@
 import { useEffect, useState } from 'react';
+import React from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { FavoriteProcess } from '../types';
+import { IconProjects, IconApp, IconMonitor, IconTasks, IconLock, IconMedia, IconUpload, IconSettings, IconFolder, IconPin, IconCircle, IconRobot, IconPackage } from './Icons';
 
 const links = [
-  { label: 'All Projects', path: '/', filter: null, icon: '📋' },
-  { label: 'APP', path: '/?type=app', filter: 'app', icon: '📱' },
-  { label: 'Monitor', path: '/monitor', icon: '📊' },
-  { label: 'Task List', path: '/tasks', icon: '📝' },
+  { label: 'All Projects', path: '/', filter: null, icon: IconProjects },
+  { label: 'APP', path: '/?type=app', filter: 'app', icon: IconApp },
+  { label: 'Monitor', path: '/monitor', icon: IconMonitor },
+  { label: 'Task List', path: '/tasks', icon: IconTasks },
 ];
 
 const bottomLinks = [
-  { label: 'VPN', path: '/project/26', icon: '🔒' },
-  { label: 'Push APK', path: '/push-apk', icon: '📤' },
-  { label: 'Settings', path: '/settings', icon: '⚙' },
+  { label: 'VPN', path: '/project/26', icon: IconLock },
+  { label: 'Media', path: '/media', icon: IconMedia },
+  { label: 'Push APK', path: '/push-apk', icon: IconUpload },
+  { label: 'Settings', path: '/settings', icon: IconSettings },
 ];
 
-const TYPE_EMOJI: Record<string, string> = {
-  flutter: '🔵', laravel: '🟠', next: '⚫', rust: '🟣', agent: '🤖', strapi: '📦',
+const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
+  flutter: () => <IconCircle className="w-3 h-3" color="#3B82F6" />,
+  laravel: () => <IconCircle className="w-3 h-3" color="#F97316" />,
+  next: () => <IconCircle className="w-3 h-3" color="#6B7280" />,
+  rust: () => <IconCircle className="w-3 h-3" color="#A855F7" />,
+  agent: () => <IconRobot className="w-3.5 h-3.5 text-green-400" />,
+  strapi: () => <IconPackage className="w-3.5 h-3.5 text-indigo-400" />,
 };
 
 const TYPE_BADGE: Record<string, string> = {
@@ -54,7 +62,7 @@ export function Sidebar() {
     return location.pathname === path;
   };
 
-  const NavItem = ({ label, path, icon, filter: f }: { label: string; path: string; icon: string; filter?: string | null }) => {
+  const NavItem = ({ label, path, icon: IconComp, filter: f }: { label: string; path: string; icon: React.ComponentType<{ className?: string }>; filter?: string | null }) => {
     const active = f !== undefined ? isActive(path, f) : isActive(path);
     return (
       <a
@@ -67,7 +75,7 @@ export function Sidebar() {
         }`}
       >
         {active && <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-emerald-400 rounded-r-full" />}
-        <span className="text-lg">{icon}</span>
+        <IconComp className="w-5 h-5" />
         <span className="text-sm font-medium">{label}</span>
       </a>
     );
@@ -115,11 +123,12 @@ export function Sidebar() {
                 {location.pathname === `/project/${proc.project_id}` && (
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-emerald-400 rounded-r-full" />
                 )}
-                <span className="text-base mt-0.5">{TYPE_EMOJI[proc.project_type] || '📁'}</span>
+                {React.createElement(TYPE_ICON[proc.project_type] || (() => <IconFolder className="w-4 h-4" />), { className: 'w-4 h-4' })}
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-medium truncate">{proc.project_name.split('/').pop()}</div>
+                  <div className="text-xs font-medium truncate">{proc.project_name.replace(/^~\//, '').split('/').slice(-2).join('/')}</div>
                   <div className="text-[11px] text-gray-500 truncate mt-0.5 flex items-center gap-1.5">
-                    <span>📌 {proc.label}</span>
+                    <IconPin className="w-3 h-3 text-gray-500" />
+                    <span>{proc.label}</span>
                     <span className={`inline-block text-[9px] font-medium px-1.5 py-0.5 rounded-full ${TYPE_BADGE[proc.project_type] || 'bg-gray-500/10 text-gray-400'}`}>
                       {proc.project_type}
                     </span>

@@ -8,7 +8,10 @@
   },
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js",
+    "dev": "concurrently \"node --watch index.js\" \"cd client && npm run dev\"",
+    "dev:backend": "node --watch index.js",
+    "dev:frontend": "cd client && npm run dev",
+    "build": "cd client && npm run build",
     "migrate": "node -e \"require('./database/db').migrate()\""
   },
   "keywords": [],
@@ -27,5 +30,8 @@
   },
   "allowScripts": {
     "better-sqlite3@12.11.1": true
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3"
   }
 }

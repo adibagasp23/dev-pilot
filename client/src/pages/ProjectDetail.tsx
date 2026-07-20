@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import KanbanBoard from '../components/KanbanBoard';
+import DatePicker from '../components/DatePicker';
 import { api, tasksApi, taskStatusesApi, type Task, type TaskStatus } from '../api';
 import type { Project, Process } from '../types';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,6 +33,9 @@ export function ProjectDetail() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [taskStatuses, setTaskStatuses] = useState<TaskStatus[]>([]);
   const [activeTab, setActiveTab] = useState<'commands' | 'tasks'>('commands');
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [newTaskDueDate, setNewTaskDueDate] = useState('');
 
   const load = useCallback(() => {
     if (!id) return;
@@ -615,36 +619,64 @@ export function ProjectDetail() {
 
       {activeTab === 'tasks' && (
         <>
-          <div className="flex gap-2 mb-4">
-            <input
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              onKeyDown={async (e) => {
-                if (e.key === 'Enter' && newTaskTitle.trim()) {
-                  try {
-                    const task = await tasksApi.create({ title: newTaskTitle.trim(), project_id: project.id, priority: 'medium' });
-                    setProjectTasks(prev => [task, ...prev]);
-                    setNewTaskTitle('');
-                  } catch {}
-                }
-              }}
-              placeholder="Add task…"
-              className="flex-1 bg-gray-50 text-sm px-3 py-2 rounded border border-gray-300 outline-none focus:border-emerald-400"
-            />
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-300">Tasks</h3>
             <button
-              onClick={async () => {
-                if (!newTaskTitle.trim()) return;
-                try {
-                  const task = await tasksApi.create({ title: newTaskTitle.trim(), project_id: project.id, priority: 'medium' });
-                  setProjectTasks(prev => [task, ...prev]);
-                  setNewTaskTitle('');
-                } catch {}
+              onClick={() => {
+                setNewTaskTitle('');
+                setNewTaskPriority('medium');
+                setNewTaskDueDate('');
+                setShowAddTask(true);
               }}
-              className="text-sm bg-emerald-500 text-white px-3 py-1.5 rounded hover:bg-emerald-600 transition"
+              className="text-sm bg-emerald-600 text-white px-4 py-1.5 rounded-lg hover:bg-emerald-500 transition"
             >
-              Add
+              + Add Task
             </button>
           </div>
+
+          {showAddTask && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setShowAddTask(false)}>
+              <div className="bg-[#161b22] border border-gray-700/60 rounded-xl shadow-2xl p-5 w-[380px]" onClick={e => e.stopPropagation()}>
+                <h3 className="text-sm font-semibold text-gray-200 mb-4">New Task</h3>
+                <input
+                  autoFocus
+                  value={newTaskTitle}
+                  onChange={e => setNewTaskTitle(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && document.getElementById('save-task-btn')?.click()}
+                  placeholder="Task title…"
+                  className="w-full bg-[#0d1117] text-white text-sm px-3 py-2 rounded border border-gray-700 outline-none focus:border-emerald-500/50 mb-3"
+                />
+                <div className="flex gap-2 mb-3">
+                  <select
+                    value={newTaskPriority}
+                    onChange={e => setNewTaskPriority(e.target.value as 'low' | 'medium' | 'high')}
+                    className="flex-1 bg-[#0d1117] text-gray-300 text-xs px-2 py-2 rounded border border-gray-700 outline-none focus:border-emerald-500/50"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                  <DatePicker value={newTaskDueDate} onChange={setNewTaskDueDate} />
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <button onClick={() => setShowAddTask(false)} className="text-sm text-gray-400 px-4 py-2 rounded-lg hover:bg-gray-800 transition">Cancel</button>
+                  <button
+                    id="save-task-btn"
+                    onClick={async () => {
+                      if (!newTaskTitle.trim()) return;
+                      try {
+                        const task = await tasksApi.create({ title: newTaskTitle.trim(), project_id: project.id, priority: newTaskPriority, due_date: newTaskDueDate || null });
+                        setProjectTasks(prev => [task, ...prev]);
+                        setShowAddTask(false);
+                        toast('Task added');
+                      } catch {}
+                    }}
+                    className="text-sm bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-500 transition"
+                  >Save</button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {projectTasks.length === 0 ? (
             <p className="text-sm text-gray-400">No ongoing tasks.</p>
@@ -662,6 +694,16 @@ export function ProjectDetail() {
                 }
               }}
               onTaskClick={(task) => task.project_id && navigate(`/project/${task.project_id}`)}
+              onUpdate={async (id, data) => {
+                try {
+                  const updated = await tasksApi.update(id, data);
+                  setProjectTasks(prev => prev.map(t => t.id === id ? updated : t));
+                  toast('Task updated');
+                  return updated;
+                } catch (e: any) {
+                  toast(e.error || 'Failed to update');
+                }
+              }}
               onDelete={async (id) => {
                 try {
                   await tasksApi.remove(id);
@@ -669,7 +711,17 @@ export function ProjectDetail() {
                   toast('Task deleted');
                 } catch {}
               }}
-              filterProjectId={project.id}
+              onReorder={async (status, taskIds) => {
+                try {
+                  await tasksApi.reorder(status, taskIds);
+                  setProjectTasks(prev => {
+                    const other = prev.filter(t => t.status !== status);
+                    const statusTasks = prev.filter(t => t.status === status);
+                    const reordered = taskIds.map(id => statusTasks.find(t => t.id === id)!).filter(Boolean);
+                    return [...other, ...reordered];
+                  });
+                } catch {}
+              }}
             />
           )}
         </>

@@ -6,6 +6,8 @@ const { scanAllFolders, scanFolder } = require('../services/scanner');
 const { startProcess, stopProcess, sendInput, getLogs, clearLogs, subscribeSSE, unsubscribeSSE, processLogs, runningProcesses } = require('../services/process-manager');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const mime = require('mime-types');
 const multer = require('multer');
 
 const upload = multer({ dest: path.join(__dirname, '..', 'uploads') });
@@ -64,7 +66,17 @@ router.get('/projects', async (req, res) => {
         ungrouped.push(p);
       }
     }
-    return res.json({ groups: Object.values(groups), ungrouped, countMap });
+    // Root projects: one per unique root (first path component)
+    const rootMap = {};
+    const roots = [];
+    for (const p of projects) {
+      const root = p.group_name || p.name.split('/')[0];
+      if (!rootMap[root]) {
+        rootMap[root] = true;
+        roots.push({ name: root, projectId: p.id });
+      }
+    }
+    return res.json({ groups: Object.values(groups), ungrouped, roots, countMap });
   }
 
   res.json({ projects, countMap });
@@ -95,14 +107,23 @@ router.get('/projects/:id', async (req, res) => {
 
   const processes = await db('processes').where('project_id', project.id).orderBy('sort_order', 'asc');
 
-  // Find sibling projects (same parent folder)
+  // Find sibling projects (same parent folder or same group)
   let siblings = [];
   if (project.path) {
     const parentDir = path.dirname(project.path);
-    const folderProjects = await db('projects')
-      .where('path', 'like', parentDir + '/%')
+    let query = db('projects')
       .orderBy('type', 'name')
       .select('id', 'name', 'type');
+
+    if (project.group_name) {
+      // Use group_name for explicit grouping (e.g., standalone projects)
+      query = query.where('group_name', project.group_name);
+    } else {
+      // Fallback: projects under same parent directory
+      query = query.where('path', 'like', parentDir + '/%');
+    }
+
+    const folderProjects = await query;
     siblings = folderProjects.map(p => ({
       ...p,
       is_active: p.id === project.id
@@ -739,7 +760,7 @@ router.get('/tasks', async (req, res) => {
       query = query.where('t.status', req.query.status);
     }
 
-    const tasks = await query.orderBy('t.created_at', 'desc');
+    const tasks = await query.orderBy('t.sort_order', 'asc');
     res.json({ tasks });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -749,14 +770,19 @@ router.get('/tasks', async (req, res) => {
 router.post('/tasks', async (req, res) => {
   try {
     const db = getDB();
-    const { title, project_id, priority } = req.body;
+    const { title, project_id, priority, due_date } = req.body;
     if (!title) return res.status(400).json({ error: 'Title is required' });
-    const [id] = await db('tasks').insert({
+    // Get max sort_order for this status
+    const maxOrder = await db('tasks').where('status', 'todo').max('sort_order as max');
+    const insert = {
       title,
       project_id: project_id || null,
       priority: priority || 'medium',
       status: 'todo',
-    });
+      sort_order: (maxOrder[0]?.max || -1) + 1,
+    };
+    if (due_date !== undefined) insert.due_date = due_date || null;
+    const [id] = await db('tasks').insert(insert);
     const task = await db('tasks').where('id', id).first();
     res.json(task);
   } catch (err) {
@@ -767,12 +793,14 @@ router.post('/tasks', async (req, res) => {
 router.put('/tasks/:id', async (req, res) => {
   try {
     const db = getDB();
-    const { title, status, priority, project_id } = req.body;
+    const { title, status, priority, project_id, due_date, description } = req.body;
     const update = { updated_at: db.fn.now() };
     if (title !== undefined) update.title = title;
     if (status !== undefined) update.status = status;
     if (priority !== undefined) update.priority = priority;
     if (project_id !== undefined) update.project_id = project_id;
+    if (due_date !== undefined) update.due_date = due_date || null;
+    if (description !== undefined) update.description = description;
     await db('tasks').where('id', req.params.id).update(update);
     const task = await db('tasks').where('id', req.params.id).first();
     res.json(task);
@@ -785,6 +813,21 @@ router.delete('/tasks/:id', async (req, res) => {
   try {
     const db = getDB();
     await db('tasks').where('id', req.params.id).delete();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /tasks/reorder — reorder tasks by status
+router.post('/tasks/reorder', async (req, res) => {
+  try {
+    const db = getDB();
+    const { status, taskIds } = req.body;
+    if (!status || !Array.isArray(taskIds)) return res.status(400).json({ error: 'Invalid data' });
+    for (let i = 0; i < taskIds.length; i++) {
+      await db('tasks').where('id', taskIds[i]).update({ sort_order: i, status });
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -854,5 +897,179 @@ router.delete('/task-statuses/:id', async (req, res) => {
   }
 });
 
+// ======== MEDIA / ASSET LIBRARY ========
+
+// GET /media — list all media items
+router.get('/media', async (req, res) => {
+  try {
+    const db = getDB();
+    let query = db('media_items').orderBy('created_at', 'desc');
+    if (req.query.project_id) {
+      query = query.where('project_id', parseInt(req.query.project_id));
+    }
+    const items = await query;
+    res.json({ items });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /media/upload — upload a file
+router.post('/media/upload', upload.single('file'), async (req, res) => {
+  let tempPath = '';
+  try {
+    const db = getDB();
+    const project_id = req.body.project_id ? parseInt(req.body.project_id) : null;
+
+    let originalname, filename, mimetype, size;
+
+    if (req.body.localPath) {
+      // Move file from local filesystem (localhost only)
+      const localPath = req.body.localPath.replace(/^~/, os.homedir());
+      if (!fs.existsSync(localPath)) return res.status(400).json({ error: 'File not found at path' });
+      const stat = fs.statSync(localPath);
+      originalname = path.basename(localPath);
+      filename = originalname;
+      mimetype = mime.lookup(localPath) || 'application/octet-stream';
+      size = stat.size;
+      tempPath = localPath;
+    } else {
+      // Regular upload from browser
+      if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+      originalname = req.file.originalname;
+      filename = req.file.filename;
+      mimetype = req.file.mimetype;
+      size = req.file.size;
+      tempPath = path.join(__dirname, '..', 'uploads', filename);
+    }
+
+    // Move file to project subfolder (root uploads/ if no project)
+    const subdir = project_id ? String(project_id) : '';
+    const destDir = path.join(__dirname, '..', 'uploads', subdir);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const destPath = path.join(destDir, originalname);
+    // Avoid overwrite: add suffix if exists
+    let finalPath = destPath;
+    let finalName = originalname;
+    let counter = 1;
+    const ext = path.extname(originalname);
+    const base = path.basename(originalname, ext);
+    while (fs.existsSync(finalPath)) {
+      finalName = `${base}_${counter}${ext}`;
+      finalPath = path.join(destDir, finalName);
+      counter++;
+    }
+    fs.renameSync(tempPath, finalPath);
+
+    // Store relative path as filename
+    const storedPath = subdir ? `${subdir}/${finalName}` : finalName;
+    const [id] = await db('media_items').insert({
+      filename: storedPath,
+      original_name: finalName,
+      mime_type: mimetype,
+      size,
+      project_id,
+    });
+    const item = await db('media_items').where('id', id).first();
+    // Clean up temp file if still exists (safety) — relevance for browser uploads
+    try { if (fs.existsSync(tempPath) && !req.body.localPath) fs.unlinkSync(tempPath); } catch {}
+    res.json({ item });
+  } catch (e) {
+    // Clean up temp file on error too (only for browser uploads)
+    try { if (fs.existsSync(tempPath) && !req.body.localPath) fs.unlinkSync(tempPath); } catch {}
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /media/:id — delete a media item
+router.delete('/media/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const item = await db('media_items').where('id', req.params.id).first();
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    // Delete file from disk
+    const filePath = path.join(__dirname, '..', 'uploads', item.filename);
+    try { fs.unlinkSync(filePath); } catch {}
+    await db('media_items').where('id', req.params.id).delete();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /media/open/:id — open file with default system app (WPS, etc.)
+router.post('/media/open/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const item = await db('media_items').where('id', req.params.id).first();
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    const filePath = path.join(__dirname, '..', 'uploads', item.filename);
+    const cmd = process.platform === 'win32'
+      ? `start "" "${filePath}"`
+      : `open "${filePath}"`;
+    require('child_process').exec(cmd, (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ success: true });
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /media/batch-delete — delete multiple media items
+router.post('/media/batch-delete', async (req, res) => {
+  try {
+    const db = getDB();
+    const ids = req.body.ids;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+    const items = await db('media_items').whereIn('id', ids);
+    for (const item of items) {
+      const filePath = path.join(__dirname, '..', 'uploads', item.filename);
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+    await db('media_items').whereIn('id', ids).delete();
+    res.json({ success: true, deleted: ids.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /media/batch-move — move multiple media items to a project
+router.put('/media/batch-move', async (req, res) => {
+  try {
+    const db = getDB();
+    const { ids, project_id } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids required' });
+    const items = await db('media_items').whereIn('id', ids);
+    const targetProjectId = project_id ? parseInt(project_id) : null;
+    const subdir = targetProjectId ? String(targetProjectId) : '';
+    const destDir = path.join(__dirname, '..', 'uploads', subdir);
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+    for (const item of items) {
+      const ext = path.extname(item.original_name);
+      const base = path.basename(item.original_name, ext);
+      let finalName = item.original_name;
+      let finalPath = path.join(destDir, finalName);
+      let counter = 1;
+      while (fs.existsSync(finalPath)) {
+        finalName = `${base}_${counter}${ext}`;
+        finalPath = path.join(destDir, finalName);
+        counter++;
+      }
+      const oldPath = path.join(__dirname, '..', 'uploads', item.filename);
+      try { fs.renameSync(oldPath, finalPath); } catch {}
+      const storedPath = subdir ? `${subdir}/${finalName}` : finalName;
+      await db('media_items').where('id', item.id).update({
+        filename: storedPath,
+        original_name: finalName,
+        project_id: targetProjectId,
+      });
+    }
+    res.json({ success: true, moved: ids.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 module.exports = router;

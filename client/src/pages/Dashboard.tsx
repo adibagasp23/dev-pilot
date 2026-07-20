@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import type { Project } from '../types';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from '../components/Snackbar';
 import ProcessLogPanel from '../components/ProcessLogPanel';
+import { IconRobot, IconSearch, IconX, IconChevronRight, IconFolderOpen, IconFolder, IconClipboard, IconPlay, IconCircle } from '../components/Icons';
 
 // ----- Tree -----
 type TreeNode = {
@@ -152,17 +153,17 @@ function FolderNode({
           onClick={() => onNavigate(p.id)}
           className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-gray-100 cursor-pointer group transition ml-6"
         >
-          <span className="text-gray-400 text-sm w-4">
-            {p.type === 'flutter' ? '🔵' : p.type === 'next' ? '⚫' : p.type === 'laravel' ? '🟠' : '🟣'}
+          <span className="text-gray-400 text-sm w-4 flex-shrink-0">
+            {p.type === 'flutter' ? <IconCircle className="w-3 h-3" color="#3B82F6" /> : p.type === 'next' ? <IconCircle className="w-3 h-3" color="#6B7280" /> : p.type === 'laravel' ? <IconCircle className="w-3 h-3" color="#F97316" /> : <IconCircle className="w-3 h-3" color="#A855F7" />}
           </span>
           <span className="text-gray-700 text-sm truncate">{node.name}</span>
           {p.path && (
             <button
               onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(p.path); toast('Path copied!'); }}
-              className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
+              className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer flex-shrink-0"
               title="Copy path"
             >
-              📋
+              <IconClipboard className="w-3.5 h-3.5" />
             </button>
           )}
           <span className={`text-xs px-1.5 py-0.5 rounded ${
@@ -187,7 +188,7 @@ function FolderNode({
                   : 'bg-emerald-500 text-white hover:bg-emerald-600'
               }`}
             >
-              {isRunning ? 'Stop' : '▶ Run'}
+              {isRunning ? 'Stop' : <><IconPlay className="w-3 h-3" /> Run</>}
             </button>
           )}
         </div>
@@ -205,7 +206,7 @@ function FolderNode({
                 className="text-xs ml-auto text-gray-400 hover:text-red-500 transition cursor-pointer"
                 title="Close terminal"
               >
-                ✕
+                <IconX className="w-3 h-3" />
               </button>
             </div>
             <ProcessLogPanel
@@ -244,18 +245,18 @@ function FolderNode({
         style={{ paddingLeft: `${depth * 12 + 8}px` }}
         onClick={toggle}
       >
-        <span className="text-gray-400 text-sm w-4 transition-transform" style={{ transform: expanded ? 'rotate(90deg)' : '' }}>
-          ▶
+        <span className="text-gray-400 text-sm w-4 transition-transform flex items-center justify-center" style={{ transform: expanded ? 'rotate(90deg)' : '' }}>
+          <IconChevronRight className="w-3 h-3" />
         </span>
-        <span className="text-gray-500">{expanded ? '📂' : '📁'}</span>
+        <span className="text-gray-500">{expanded ? <IconFolderOpen className="w-4 h-4" /> : <IconFolder className="w-4 h-4" />}</span>
         <span className="text-gray-800 text-sm font-medium">{node.name}</span>
         <span className="text-xs text-gray-400 ml-1">{count} project{count !== 1 ? 's' : ''}</span>
         <button
           onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(node.path); toast('Path copied!'); }}
-          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer"
+          className="text-gray-400 hover:text-emerald-500 transition text-xs ml-1 cursor-pointer flex-shrink-0"
           title="Copy path"
         >
-          📋
+          <IconClipboard className="w-3.5 h-3.5" />
         </button>
       </div>
       {expanded && node.children && (
@@ -434,12 +435,12 @@ export function Dashboard() {
     return counts;
   })();
 
-  const filterLabels: Record<string, string> = {
-    flutter: '🔵 Flutter',
-    laravel: '🟠 Laravel',
-    next: '⚫ Next.js',
-    rust: '🟣 Rust',
-    agent: '🤖 Agent',
+  const filterLabels: Record<string, React.ReactNode> = {
+    flutter: <span className="inline-flex items-center gap-1"><IconCircle className="w-2.5 h-2.5" color="#3B82F6" /> Flutter</span>,
+    laravel: <span className="inline-flex items-center gap-1"><IconCircle className="w-2.5 h-2.5" color="#F97316" /> Laravel</span>,
+    next: <span className="inline-flex items-center gap-1"><IconCircle className="w-2.5 h-2.5" color="#6B7280" /> Next.js</span>,
+    rust: <span className="inline-flex items-center gap-1"><IconCircle className="w-2.5 h-2.5" color="#A855F7" /> Rust</span>,
+    agent: <span className="inline-flex items-center gap-1"><IconRobot className="w-3 h-3 text-green-500" /> Agent</span>,
   };
 
   // Apply subtype filter
@@ -552,14 +553,14 @@ export function Dashboard() {
             }}
             className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition text-sm"
           >
-            🤖 New Agent
+            <IconRobot className="w-4 h-4" /> New Agent
           </button>
         </div>
       </div>
 
       {projects.length === 0 ? (
         <div className="text-center py-20 text-gray-400">
-          <p className="text-4xl mb-2">📂</p>
+          <p className="text-4xl mb-2 flex justify-center"><IconFolderOpen className="w-12 h-12 text-gray-500" /></p>
           <p className="text-lg">No projects yet</p>
           <p className="text-sm mt-1">Go to Settings to add scan folders</p>
         </div>
@@ -567,7 +568,7 @@ export function Dashboard() {
         <>
           <div className="mb-4">
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">🔍</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"><IconSearch className="w-4 h-4" /></span>
               <input
                 type="text"
                 placeholder="Search projects..."
@@ -578,9 +579,9 @@ export function Dashboard() {
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  ✕
+                  <IconX className="w-4 h-4" />
                 </button>
               )}
             </div>

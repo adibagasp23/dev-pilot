@@ -2,8 +2,12 @@ node_modules/
 client/node_modules/
 client/dist/
 database/*.db
+database/*.sqlite
+database/*.bak
 *.db-journal
 *.db-wal
+backups/
+uploads/
 .env
 *.log
 .DS_Store

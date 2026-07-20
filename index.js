@@ -94,6 +94,7 @@ app.use((err, req, res, next) => {
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // API routes
 app.use('/api', apiRoutes);
