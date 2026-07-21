@@ -319,6 +319,16 @@ export function ProjectDetail() {
     setRcMode('baseline');
     setRcResult('');
     setRcError('');
+    // Auto-fetch sync for before values on cards
+    fetch(`/api/remote-config/sync/16?env=${rcEnv}`).then(r => r.json()).then(syncData => {
+      if (syncData.sync) {
+        const vals = rcEnv === 'dev' ? syncData.sync.dev : syncData.sync.prod;
+        setRcSyncData({
+          android: { min: vals.android_min || '', latest: vals.android_latest || '' },
+          ios: { min: vals.ios_min || '', latest: vals.ios_latest || '' },
+        });
+      }
+    }).catch(() => {});
   }, [rcEnv]);
 
   const handleStart = async (procId: number) => {
@@ -513,6 +523,16 @@ export function ProjectDetail() {
         setRcResult(`✅ Template "${data.template.name}" berhasil disimpan`);
         // Reload templates
         fetch('/api/remote-config/templates/16').then(r => r.json()).then(d => setRcTemplates(d.templates || [])).catch(() => {});
+        // Auto-sync for before values on card
+        fetch(`/api/remote-config/sync/16?env=${rcEnv}`).then(r => r.json()).then(syncData => {
+          if (syncData.sync) {
+            const vals = rcEnv === 'dev' ? syncData.sync.dev : syncData.sync.prod;
+            setRcSyncData({
+              android: { min: vals.android_min || '', latest: vals.android_latest || '' },
+              ios: { min: vals.ios_min || '', latest: vals.ios_latest || '' },
+            });
+          }
+        }).catch(() => {});
         // Reset form name
         setRcTemplateName('');
       } else {
