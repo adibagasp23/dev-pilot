@@ -5,6 +5,10 @@ interface RcHistory {
   id: number;
   mode: string;
   suffix: string;
+  before_android_min: string | null;
+  before_android_latest: string | null;
+  before_ios_min: string | null;
+  before_ios_latest: string | null;
   android_min: string | null;
   android_latest: string | null;
   ios_min: string | null;
@@ -89,6 +93,7 @@ export default function RemoteConfig() {
                   <th className="py-2 pr-3">Platform</th>
                   <th className="py-2 pr-3">Android</th>
                   <th className="py-2 pr-3">iOS</th>
+                  <th className="py-2 pr-3">Before</th>
                   <th className="py-2 pr-2">Status</th>
                 </tr>
               </thead>
@@ -128,6 +133,17 @@ export default function RemoteConfig() {
                       {h.ios_latest && h.ios_latest !== h.ios_min && (
                         <span className="text-gray-400"> → {h.ios_latest}</span>
                       )}
+                    </td>
+                    <td className="py-2 pr-3 text-xs font-mono">
+                      {(() => {
+                        const bAnd = h.before_android_min || h.before_android_latest;
+                        const bIos = h.before_ios_min || h.before_ios_latest;
+                        if (!bAnd && !bIos) return <span className="text-gray-300">—</span>;
+                        const parts = [];
+                        if (bAnd) parts.push(<><span className="text-gray-400">A:</span> <span className="text-gray-500">{bAnd}</span></>);
+                        if (bIos) parts.push(<><span className="text-gray-400 ml-1">I:</span> <span className="text-gray-500">{bIos}</span></>);
+                        return <span>{parts.map((p, i) => <span key={i}>{p}</span>)}</span>;
+                      })()}
                     </td>
                     <td className="py-2 pr-2">
                       {h.status === 'success' ? (

@@ -1556,6 +1556,13 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
       }
     }
 
+    // Capture before values (previous config)
+    const suffixConfig = existing.suffix || '';
+    const beforeAndroidMin = lastConfig ? (lastConfig[`android_minimum_version${suffixConfig}`] || (suffixConfig ? lastConfig['android_minimum_version'] : '') || '') : '';
+    const beforeAndroidLatest = lastConfig ? (lastConfig[`android_latest_version${suffixConfig}`] || (suffixConfig ? lastConfig['android_latest_version'] : '') || '') : '';
+    const beforeIosMin = lastConfig ? (lastConfig[`ios_minimum_version${suffixConfig}`] || (suffixConfig ? lastConfig['ios_minimum_version'] : '') || '') : '';
+    const beforeIosLatest = lastConfig ? (lastConfig[`ios_latest_version${suffixConfig}`] || (suffixConfig ? lastConfig['ios_latest_version'] : '') || '') : '';
+
     // Build config JSON from template
     const config = buildConfigFromTemplate(existing);
     const configJson = JSON.stringify(config);
@@ -1593,6 +1600,10 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
       project_id: existing.project_id,
       mode: existing.mode,
       suffix: existing.suffix || '',
+      before_android_min: beforeAndroidMin,
+      before_android_latest: beforeAndroidLatest,
+      before_ios_min: beforeIosMin,
+      before_ios_latest: beforeIosLatest,
       android_min: existing.android_min || existing.target_version,
       android_latest: existing.android_latest || existing.target_version,
       ios_min: existing.ios_min || existing.target_version,
