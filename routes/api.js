@@ -1262,7 +1262,7 @@ router.post('/remote-config/templates', async (req, res) => {
       project_id, name, mode, suffix,
       target_version, android_min, android_latest,
       ios_min, ios_latest, android_store_url, ios_store_url,
-      update_title, update_message,
+      update_title, update_message, platform,
     } = req.body;
 
     if (!project_id || !mode) {
@@ -1285,6 +1285,7 @@ router.post('/remote-config/templates', async (req, res) => {
     if (ios_store_url) params.ios_store_url = ios_store_url;
     if (update_title) params.update_title = update_title;
     if (update_message) params.update_message = update_message;
+    params.platform = platform || 'both';
 
     const [id] = await db('remote_config_templates').insert({
       project_id,
@@ -1315,10 +1316,18 @@ router.post('/remote-config/templates', async (req, res) => {
 router.get('/remote-config/templates/:projectId', async (req, res) => {
   try {
     const db = getDB();
-    const rows = await db('remote_config_templates')
+    let rows = await db('remote_config_templates')
       .where('project_id', req.params.projectId)
       .orderBy('created_at', 'desc')
       .limit(50);
+    // Inject platform from params_json for frontend convenience
+    rows = rows.map(r => {
+      try {
+        const p = JSON.parse(r.params_json || '{}');
+        r.platform = p.platform || 'both';
+      } catch { r.platform = 'both'; }
+      return r;
+    });
     res.json({ templates: rows });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1326,10 +1335,22 @@ router.get('/remote-config/templates/:projectId', async (req, res) => {
 });
 
 // Get single template
+// Inject platform for single template
+async function enrichTemplate(db, id) {
+  const row = await db('remote_config_templates').where('id', id).first();
+  if (row) {
+    try {
+      const p = JSON.parse(row.params_json || '{}');
+      row.platform = p.platform || 'both';
+    } catch { row.platform = 'both'; }
+  }
+  return row;
+}
+
 router.get('/remote-config/template/:id', async (req, res) => {
   try {
     const db = getDB();
-    const row = await db('remote_config_templates').where('id', req.params.id).first();
+    const row = await enrichTemplate(db, req.params.id);
     if (!row) return res.status(404).json({ error: 'Template tidak ditemukan' });
     res.json({ template: row });
   } catch (e) {
@@ -1413,6 +1434,7 @@ router.delete('/remote-config/template/:id', async (req, res) => {
 // Build config JSON from template
 function buildConfigFromTemplate(t) {
   const suffix = t.suffix || '';
+  const platform = t.platform || 'both';
   const makeParam = (base, val) => {
     const key = suffix ? `${base}${suffix}` : base;
     const pair = {};
@@ -1420,34 +1442,37 @@ function buildConfigFromTemplate(t) {
     return pair;
   };
 
+  const isAndroid = platform === 'android' || platform === 'both';
+  const isIos = platform === 'ios' || platform === 'both';
+
   let config = {};
   const ver = t.mode === 'custom'
     ? { min: t.android_min || '', latest: t.android_latest || '' }
     : { min: t.target_version || '', latest: t.target_version || '' };
 
-  // Kirim unified keys (baru)
+  // Unified keys (selalu kirim agar Flutter bisa baca)
   Object.assign(config, makeParam('minimum_version', ver.min));
   Object.assign(config, makeParam('latest_version', ver.latest));
 
-  // Kirim platform-specific keys (lama) agar kompatibel dengan master
-  Object.assign(config, makeParam('android_minimum_version', ver.min));
-  Object.assign(config, makeParam('android_latest_version', ver.latest));
-  Object.assign(config, makeParam('ios_minimum_version', ver.min));
-  Object.assign(config, makeParam('ios_latest_version', ver.latest));
+  // Platform-specific keys sesuai dropdown
+  if (isAndroid) {
+    Object.assign(config, makeParam('android_minimum_version', ver.min));
+    Object.assign(config, makeParam('android_latest_version', ver.latest));
+    Object.assign(config, makeParam('android_update_title', t.update_title));
+    Object.assign(config, makeParam('android_update_message', t.update_message));
+    Object.assign(config, makeParam('android_store_url', t.android_store_url));
+  }
+  if (isIos) {
+    Object.assign(config, makeParam('ios_minimum_version', ver.min));
+    Object.assign(config, makeParam('ios_latest_version', ver.latest));
+    Object.assign(config, makeParam('ios_update_title', t.update_title));
+    Object.assign(config, makeParam('ios_update_message', t.update_message));
+    Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
+  }
 
-  // Unified title/message (baru)
+  // Unified title/message
   Object.assign(config, makeParam('update_title', t.update_title));
   Object.assign(config, makeParam('update_message', t.update_message));
-
-  // Platform-specific title/message (lama, untuk kompatibilitas master)
-  Object.assign(config, makeParam('android_update_title', t.update_title));
-  Object.assign(config, makeParam('android_update_message', t.update_message));
-  Object.assign(config, makeParam('ios_update_title', t.update_title));
-  Object.assign(config, makeParam('ios_update_message', t.update_message));
-
-  // Store URLs (tetap platform-specific)
-  Object.assign(config, makeParam('android_store_url', t.android_store_url));
-  Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
 
   return config;
 }
@@ -1516,6 +1541,12 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
         }
       }
     }
+
+    // Inject platform from params_json
+    try {
+      const pp = JSON.parse(existing.params_json || '{}');
+      existing.platform = pp.platform || 'both';
+    } catch { existing.platform = 'both'; }
 
     // Build config JSON from template
     const config = buildConfigFromTemplate(existing);
