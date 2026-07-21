@@ -1188,12 +1188,51 @@ export function ProjectDetail() {
               <div className="flex gap-2">
                 <div className="flex-1">
                   <label className="text-xs font-medium text-gray-500">Nama Template</label>
-                  <input
-                    value={rcTemplateName}
-                    onChange={e => setRcTemplateName(e.target.value)}
-                    placeholder="v2.0.4 - Force Update"
-                    className="w-full mt-1 px-3 py-2 text-sm border rounded-lg"
-                  />
+                  <select
+                    value={rcTemplateName.replace(/^v/, '') || ''}
+                    disabled={!rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest}
+                    onChange={e => {
+                      const ver = e.target.value;
+                      if (!ver) return;
+                      if (ver === '__custom__') {
+                        setRcCustomVersionInput(p => ({...p, ['_template']: true}));
+                        return;
+                      }
+                      setRcTemplateName('v' + ver);
+                      setRcTargetVersion(ver);
+                    }}
+                    className={`w-full mt-1 px-3 py-2 text-sm border rounded-lg ${!rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                  >
+                    {(!rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest) ? (
+                      <option value="">🔄 Sync dulu</option>
+                    ) : (
+                      <>
+                        <option value="" disabled>Pilih versi template</option>
+                        {(() => {
+                          const base = rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest || rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min || '';
+                          const suggestions = getVersionSuggestions(base);
+                          return (<>
+                            <option value={base} disabled>── v{base} (saat ini)</option>
+                            {suggestions.map(s => (
+                              <option key={s.version} value={s.version}>v{s.version} ({s.label})</option>
+                            ))}
+                            <option value="__custom__">✏️ Kustom...</option>
+                          </>);
+                        })()}
+                      </>
+                    )}
+                  </select>
+                  {rcCustomVersionInput['_template'] && (
+                    <div className="mt-1">
+                      <input
+                        value={rcTemplateName}
+                        onChange={e => setRcTemplateName(e.target.value)}
+                        placeholder="v2.0.4 - Force Update"
+                        className="w-full px-3 py-2 text-sm border rounded-lg"
+                      />
+                      <button onClick={() => setRcCustomVersionInput(p => ({...p, ['_template']: false}))} className="text-xs text-blue-500 mt-1">← Kembali ke pilihan</button>
+                    </div>
+                  )}
                 </div>
               </div>
               <div>
