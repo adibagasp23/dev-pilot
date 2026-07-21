@@ -61,7 +61,7 @@ export function ProjectDetail() {
   const [rcReviewId, setRcReviewId] = useState<number | null>(null);
   const [rcVersionErrors, setRcVersionErrors] = useState<Record<string, string>>({});
   const [rcCustomVersionInput, setRcCustomVersionInput] = useState<Record<string, boolean>>({});
-  const rcSyncData = useRef<{ android: { min: string; latest: string }; ios: { min: string; latest: string } }>({ android: { min: '', latest: '' }, ios: { min: '', latest: '' } });
+  const [rcSyncData, setRcSyncData] = useState<{ android: { min: string; latest: string }; ios: { min: string; latest: string } }>({ android: { min: '', latest: '' }, ios: { min: '', latest: '' } });
 
   const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Format harus x.y.z (contoh: 2.0.4)');
 
@@ -307,7 +307,7 @@ export function ProjectDetail() {
 
   // Reset form when environment tab changes
   useEffect(() => {
-    rcSyncData.current = { android: { min: '', latest: '' }, ios: { min: '', latest: '' } };
+    setRcSyncData({ android: { min: '', latest: '' }, ios: { min: '', latest: '' } });
     setRcAndroidMinVersion('');
     setRcAndroidLatestVersion('');
     setRcIosMinVersion('');
@@ -543,7 +543,7 @@ export function ProjectDetail() {
           min: vals.ios_min || '',
           latest: vals.ios_latest || '',
         };
-        rcSyncData.current = { android: syncAndroid, ios: syncIos };
+        setRcSyncData({ android: syncAndroid, ios: syncIos });
         const curSync = rcPlatform === 'ios' ? syncIos : syncAndroid;
         setRcAndroidMinVersion(syncAndroid.min);
         setRcAndroidLatestVersion(syncAndroid.latest);
@@ -1204,7 +1204,7 @@ export function ProjectDetail() {
                   <label className="text-xs font-medium text-gray-500">Nama Template</label>
                   <select
                     value={rcTemplateName.replace(/^v/, '') || ''}
-                    disabled={!rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest}
+                    disabled={!rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest}
                     onChange={e => {
                       const ver = e.target.value;
                       if (!ver) return;
@@ -1215,15 +1215,15 @@ export function ProjectDetail() {
                       setRcTemplateName('v' + ver);
                       setRcTargetVersion(ver);
                     }}
-                    className={`w-full mt-1 px-3 py-2 text-sm border rounded-lg ${!rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
+                    className={`w-full mt-1 px-3 py-2 text-sm border rounded-lg ${!rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''}`}
                   >
-                    {(!rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest) ? (
+                    {(!rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min && !rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest) ? (
                       <option value="">🔄 Sync dulu</option>
                     ) : (
                       <>
                         <option value="" disabled>Pilih versi template</option>
                         {(() => {
-                          const base = rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest || rcSyncData.current[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min || '';
+                          const base = rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest || rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min || '';
                           const suggestions = getVersionSuggestions(base);
                           return (<>
                             <option value={base} disabled>── v{base} (saat ini)</option>
@@ -1294,7 +1294,7 @@ export function ProjectDetail() {
                   value={rcTargetVersion}
                   onChange={setRcTargetVersion}
                   field="target_version"
-                  baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).latest || (rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).min}
+                  baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).latest || (rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).min}
                   label={rcMode === 'optional' ? 'Versi target latest' : 'Versi target minimum/latest'}
                 />
               )}
@@ -1304,20 +1304,20 @@ export function ProjectDetail() {
                 <>
                   <div className="text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">🤖 Android</div>
                   <div className="grid grid-cols-2 gap-3">
-                    <VersionSelect value={rcAndroidMinVersion} onChange={setRcAndroidMinVersion} field="min_version" baseSync={rcSyncData.current.android.min} label="Min Version" />
-                    <VersionSelect value={rcAndroidLatestVersion} onChange={setRcAndroidLatestVersion} field="latest_version" baseSync={rcSyncData.current.android.latest} label="Latest Version" />
+                    <VersionSelect value={rcAndroidMinVersion} onChange={setRcAndroidMinVersion} field="min_version" baseSync={rcSyncData.android.min} label="Min Version" />
+                    <VersionSelect value={rcAndroidLatestVersion} onChange={setRcAndroidLatestVersion} field="latest_version" baseSync={rcSyncData.android.latest} label="Latest Version" />
                   </div>
                   <div className="text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">📱 iOS</div>
                   <div className="grid grid-cols-2 gap-3">
-                    <VersionSelect value={rcIosMinVersion} onChange={setRcIosMinVersion} field="min_version" baseSync={rcSyncData.current.ios.min} label="Min Version" />
-                    <VersionSelect value={rcIosLatestVersion} onChange={setRcIosLatestVersion} field="latest_version" baseSync={rcSyncData.current.ios.latest} label="Latest Version" />
+                    <VersionSelect value={rcIosMinVersion} onChange={setRcIosMinVersion} field="min_version" baseSync={rcSyncData.ios.min} label="Min Version" />
+                    <VersionSelect value={rcIosLatestVersion} onChange={setRcIosLatestVersion} field="latest_version" baseSync={rcSyncData.ios.latest} label="Latest Version" />
                   </div>
                 </>
               )}
               {rcMode === 'custom' && rcPlatform !== 'both' && (
                 <div className="grid grid-cols-2 gap-3">
-                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidMinVersion : rcIosMinVersion} onChange={rcPlatform === 'android' ? setRcAndroidMinVersion : setRcIosMinVersion} field="min_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).min} label="Min Version" />
-                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidLatestVersion : rcIosLatestVersion} onChange={rcPlatform === 'android' ? setRcAndroidLatestVersion : setRcIosLatestVersion} field="latest_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).latest} label="Latest Version" />
+                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidMinVersion : rcIosMinVersion} onChange={rcPlatform === 'android' ? setRcAndroidMinVersion : setRcIosMinVersion} field="min_version" baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).min} label="Min Version" />
+                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidLatestVersion : rcIosLatestVersion} onChange={rcPlatform === 'android' ? setRcAndroidLatestVersion : setRcIosLatestVersion} field="latest_version" baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).latest} label="Latest Version" />
                 </div>
               )}
 
@@ -1448,6 +1448,34 @@ export function ProjectDetail() {
                             </button>
                           </div>
                         </div>
+
+                        {/* Before → After diff row */}
+                        {(() => {
+                          const sd = rcSyncData;
+                          if (!sd) return null;
+                          const p = t.platform || parsedParams.platform || 'both';
+                          const changes: { label: string; before: string; after: string }[] = [];
+                          if (p === 'both' || p === 'android') {
+                            if (t.android_min && t.android_min !== sd.android.min) changes.push({ label: 'A Min', before: sd.android.min || '—', after: t.android_min });
+                            if (t.android_latest && t.android_latest !== sd.android.latest) changes.push({ label: 'A Lts', before: sd.android.latest || '—', after: t.android_latest });
+                          }
+                          if (p === 'both' || p === 'ios') {
+                            if (t.ios_min && t.ios_min !== sd.ios.min) changes.push({ label: 'I Min', before: sd.ios.min || '—', after: t.ios_min });
+                            if (t.ios_latest && t.ios_latest !== sd.ios.latest) changes.push({ label: 'I Lts', before: sd.ios.latest || '—', after: t.ios_latest });
+                          }
+                          if (changes.length === 0) return null;
+                          return (
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs">
+                              {changes.map((c, i) => (
+                                <span key={i} className="text-gray-400">
+                                  {c.label}: <span className="line-through text-gray-400">{c.before}</span>
+                                  <span className="text-gray-300 mx-0.5">→</span>
+                                  <span className="text-emerald-600 font-medium">{c.after}</span>
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
 
                         {/* Show publish result log */}
                         {rcPublishResult && rcPublishResult.id === t.id && (
