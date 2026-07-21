@@ -610,43 +610,24 @@ export function ProjectDetail() {
     setRcReviewId(templateId);
     setRcReviewData(null);
     try {
-      const [res, vcRes] = await Promise.all([
+      const [res, syncRes] = await Promise.all([
         fetch(`/api/remote-config/template/${templateId}`),
-        fetch(`/api/app-config/tms-v2`),
+        fetch(`/api/remote-config/sync/16`),
       ]);
       const data = await res.json();
-      const vcData = await vcRes.json().catch(() => ({ config: null }));
+      const syncData = await syncRes.json().catch(() => ({ sync: {} }));
       if (data.template) {
         const params = data.template.params_json ? JSON.parse(data.template.params_json) : {};
         const suffix = data.template.suffix || '';
-        // Parse current published config for before values
-        let beforeConfig: Record<string, string> = {};
-        if (vcData.config) {
-          const parsed = typeof vcData.config === 'string' ? JSON.parse(vcData.config) : vcData.config;
-          if (parsed) {
-            // Try suffixed keys first, then fallback to base keys
-            // Keys in stored config: minimum_version, latest_version + _dev suffix
-            const tryKey = (k: string) => parsed[`${k}${suffix}`] || (suffix ? parsed[k] : '') || '';
-            // For 'both' or 'android' platform, minimum_version/latest_version are android values
-            // For 'ios' platform, ios_minimum_version/ios_latest_version are used
-            const p = data.template.platform || 'both';
-            if (p === 'ios') {
-              beforeConfig = {
-                android_min: '',
-                android_latest: '',
-                ios_min: tryKey('minimum_version'),
-                ios_latest: tryKey('latest_version'),
-              };
-            } else {
-              beforeConfig = {
-                android_min: tryKey('minimum_version'),
-                android_latest: tryKey('latest_version'),
-                ios_min: tryKey('ios_minimum_version') || tryKey('minimum_version'),
-                ios_latest: tryKey('ios_latest_version') || tryKey('latest_version'),
-              };
-            }
-          }
-        }
+        const env = suffix === '_dev' ? 'dev' : 'prod';
+        // Use sync data as before values (ground truth from Laravel backend)
+        const envSync = syncData.sync?.[env] || {};
+        const beforeConfig = {
+          android_min: envSync.android_min || '',
+          android_latest: envSync.android_latest || '',
+          ios_min: envSync.ios_min || '',
+          ios_latest: envSync.ios_latest || '',
+        };
         setRcReviewData({ ...data.template, parsedParams: params, beforeConfig });
       }
     } catch (err: any) {
