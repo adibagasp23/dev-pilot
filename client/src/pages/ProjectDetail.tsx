@@ -172,7 +172,7 @@ export function ProjectDetail() {
     return Object.keys(errs).length === 0;
   };
   const [rcReviewData, setRcReviewData] = useState<any>(null);
-  const [rcShowExtras, setRcShowExtras] = useState(false);
+
   const [rcRefreshKey, setRcRefreshKey] = useState(0);
   const [rcPublishResult, setRcPublishResult] = useState<{ id: number; stdout: string; stderr: string; success: boolean } | null>(null);
   const [rcShowPublishLog, setRcShowPublishLog] = useState<number | null>(null);
@@ -545,8 +545,6 @@ export function ProjectDetail() {
         // Fill target_version from version values
         if (curSync.latest) setRcTargetVersion(curSync.latest);
         // Auto-open Opsi tambahan modal
-        setTimeout(() => setRcShowExtras(true), 100);
-
         const syncVersion = data.version || curSync.latest || '';
         setRcTemplateName(`v${syncVersion}`);
         setRcResult(`✅ Berhasil sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} (versi ${data.version || '?'}). Form sudah terisi.`);
@@ -1256,16 +1254,31 @@ export function ProjectDetail() {
                 </div>
               )}
 
-              <button
-                type="button"
-                onClick={() => setRcShowExtras(true)}
-                className="w-full py-2 px-3 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition flex items-center justify-center gap-1"
-              >
-                📎 Opsi tambahan
-                {(rcAndroidStoreUrl || rcIosStoreUrl || rcTitle || rcMessage) && (
-                  <span className="text-emerald-600 font-bold ml-1">• terisi</span>
-                )}
-              </button>
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase mb-1">📎 Opsi Tambahan</p>
+                <div className="space-y-2">
+                  {rcPlatform !== 'ios' && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Android Store URL</label>
+                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcAndroidStoreUrl}</p>
+                    </div>
+                  )}
+                  {rcPlatform !== 'android' && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">iOS Store URL</label>
+                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcIosStoreUrl}</p>
+                    </div>
+                  )}
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Update Title</label>
+                    <textarea value={rcTitle} onChange={e => setRcTitle(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={2} placeholder="Pembaruan tersedia" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Update Message</label>
+                    <textarea value={rcMessage} onChange={e => setRcMessage(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={3} placeholder="Silakan perbarui aplikasi ke versi terbaru untuk pengalaman terbaik." />
+                  </div>
+                </div>
+              </div>
 
               <div className="flex gap-2">
                 <button
@@ -1386,46 +1399,6 @@ export function ProjectDetail() {
               </div>
             )}
           </div>
-
-          {/* Opsi Tambahan Modal */}
-          {rcShowExtras && (
-            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setRcShowExtras(false)}>
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-                <div className="p-4 border-b flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800">📎 Opsi Tambahan</h3>
-                  <button onClick={() => setRcShowExtras(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
-                </div>
-                <div className="p-4 space-y-3">
-                  {rcPlatform !== 'ios' && (
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Android Store URL</label>
-                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcAndroidStoreUrl}</p>
-                    </div>
-                  )}
-                  {rcPlatform !== 'android' && (
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">iOS Store URL</label>
-                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcIosStoreUrl}</p>
-                    </div>
-                  )}
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Update Title</label>
-                    <textarea value={rcTitle} onChange={e => setRcTitle(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={2} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Update Message</label>
-                    <textarea value={rcMessage} onChange={e => setRcMessage(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={3} />
-                  </div>
-                  <button
-                    onClick={() => setRcShowExtras(false)}
-                    className="w-full py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition"
-                  >
-                    Tutup
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
         {/* Review Modal */}
           {rcReviewId !== null && rcReviewData && (
