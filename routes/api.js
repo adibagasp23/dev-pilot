@@ -1228,19 +1228,19 @@ router.get('/remote-config/sync/:projectId', async (req, res) => {
       ios_latest: d?.ios_latest_version || d?.latest_version || '',
       android_store_url: d?.android_store_url || '',
       ios_store_url: d?.ios_store_url || '',
-      update_title: d?.update_title || '',
-      update_message: d?.update_message || '',
+      update_title: d?.update_title || d?.android_update_title || d?.ios_update_title || '',
+      update_message: d?.update_message || d?.android_update_message || d?.ios_update_message || '',
     });
 
     const extractDev = (d) => ({
-      android_min: d?.['android_minimum_version_dev'] || d?.minimum_version_dev || '',
-      android_latest: d?.['android_latest_version_dev'] || d?.latest_version_dev || '',
-      ios_min: d?.['ios_minimum_version_dev'] || d?.minimum_version_dev || '',
-      ios_latest: d?.['ios_latest_version_dev'] || d?.latest_version_dev || '',
-      android_store_url: d?.['android_store_url_dev'] || '',
-      ios_store_url: d?.['ios_store_url_dev'] || '',
-      update_title: d?.['update_title_dev'] || '',
-      update_message: d?.['update_message_dev'] || '',
+      android_min: d?.['android_minimum_version_dev'] || d?.minimum_version_dev || d?.android_minimum_version || d?.minimum_version || '',
+      android_latest: d?.['android_latest_version_dev'] || d?.latest_version_dev || d?.android_latest_version || d?.latest_version || '',
+      ios_min: d?.['ios_minimum_version_dev'] || d?.minimum_version_dev || d?.ios_minimum_version || d?.minimum_version || '',
+      ios_latest: d?.['ios_latest_version_dev'] || d?.latest_version_dev || d?.ios_latest_version || d?.latest_version || '',
+      android_store_url: d?.['android_store_url_dev'] || d?.android_store_url || '',
+      ios_store_url: d?.['ios_store_url_dev'] || d?.ios_store_url || '',
+      update_title: d?.['update_title_dev'] || d?.update_title || d?.android_update_title || d?.ios_update_title || '',
+      update_message: d?.['update_message_dev'] || d?.update_message || d?.android_update_message || d?.ios_update_message || '',
     });
 
     res.json({
