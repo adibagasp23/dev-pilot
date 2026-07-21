@@ -1285,7 +1285,7 @@ router.post('/remote-config/templates', async (req, res) => {
     if (ios_store_url) params.ios_store_url = ios_store_url;
     if (update_title) params.update_title = update_title;
     if (update_message) params.update_message = update_message;
-    params.platform = platform || 'both';
+    params.platform = platform || 'android';
 
     const [id] = await db('remote_config_templates').insert({
       project_id,
@@ -1324,7 +1324,7 @@ router.get('/remote-config/templates/:projectId', async (req, res) => {
     rows = rows.map(r => {
       try {
         const p = JSON.parse(r.params_json || '{}');
-        r.platform = p.platform || 'both';
+        r.platform = p.platform || 'android';
       } catch { r.platform = 'both'; }
       return r;
     });
@@ -1341,7 +1341,7 @@ async function enrichTemplate(db, id) {
   if (row) {
     try {
       const p = JSON.parse(row.params_json || '{}');
-      row.platform = p.platform || 'both';
+      row.platform = p.platform || 'android';
     } catch { row.platform = 'both'; }
   }
   return row;
@@ -1442,8 +1442,8 @@ function buildConfigFromTemplate(t) {
     return pair;
   };
 
-  const isAndroid = platform === 'android' || platform === 'both';
-  const isIos = platform === 'ios' || platform === 'both';
+  const isAndroid = platform === 'android';
+  const isIos = platform === 'ios';
 
   let config = {};
   const ver = t.mode === 'custom'
@@ -1545,7 +1545,7 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
     // Inject platform from params_json
     try {
       const pp = JSON.parse(existing.params_json || '{}');
-      existing.platform = pp.platform || 'both';
+      existing.platform = pp.platform || 'android';
     } catch { existing.platform = 'both'; }
 
     // Build config JSON from template

@@ -43,7 +43,7 @@ export function ProjectDetail() {
   const [rcMode, setRcMode] = useState('baseline');
   const [rcEnv, setRcEnv] = useState('dev'); // 'dev' | 'prod'
   const [rcTemplateName, setRcTemplateName] = useState('');
-  const [rcPlatform, setRcPlatform] = useState('both'); // 'android' | 'ios' | 'both'
+  const [rcPlatform, setRcPlatform] = useState('android'); // 'android' | 'ios'
   const [rcTargetVersion, setRcTargetVersion] = useState('');
   const [rcMinVersion, setRcMinVersion] = useState('');
   const [rcLatestVersion, setRcLatestVersion] = useState('');
@@ -609,7 +609,7 @@ export function ProjectDetail() {
     const tLatest = template.android_latest || template.ios_latest || '';
     setRcMinVersion(tMin);
     setRcLatestVersion(tLatest);
-    setRcPlatform(template.platform || 'both');
+    setRcPlatform(template.platform || 'android');
     setRcAndroidStoreUrl(template.android_store_url || '');
     setRcIosStoreUrl(template.ios_store_url || '');
     setRcTitle(template.update_title || '');
@@ -1166,12 +1166,7 @@ export function ProjectDetail() {
               <div>
                 <label className="text-xs font-medium text-gray-500">📱 Platform</label>
                 <div className="flex rounded-lg border overflow-hidden mt-1">
-                  <button
-                    onClick={() => setRcPlatform('both')}
-                    className={`flex-1 py-2 text-sm font-medium transition ${rcPlatform === 'both' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                  >
-                    🤖📱 Both
-                  </button>
+
                   <button
                     onClick={() => setRcPlatform('android')}
                     className={`flex-1 py-2 text-sm font-medium transition ${rcPlatform === 'android' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
@@ -1360,18 +1355,10 @@ export function ProjectDetail() {
                   <button onClick={() => setRcShowExtras(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
                 </div>
                 <div className="p-4 space-y-3">
-                  {rcPlatform !== 'ios' && (
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">Android Store URL</label>
-                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcAndroidStoreUrl}</p>
-                    </div>
-                  )}
-                  {rcPlatform !== 'android' && (
-                    <div>
-                      <label className="text-xs font-medium text-gray-500">iOS Store URL</label>
-                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcIosStoreUrl}</p>
-                    </div>
-                  )}
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Store URL</label>
+                    <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcPlatform === 'android' ? rcAndroidStoreUrl : rcIosStoreUrl}</p>
+                  </div>
                   <div>
                     <label className="text-xs font-medium text-gray-500">Update Title</label>
                     <textarea value={rcTitle} onChange={e => setRcTitle(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={2} />
