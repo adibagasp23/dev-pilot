@@ -1342,7 +1342,7 @@ async function enrichTemplate(db, id) {
     try {
       const p = JSON.parse(row.params_json || '{}');
       row.platform = p.platform || 'android';
-    } catch { row.platform = 'both'; }
+    } catch { row.platform = 'android'; }
   }
   return row;
 }
@@ -1447,7 +1447,10 @@ function buildConfigFromTemplate(t) {
 
   let config = {};
   const ver = t.mode === 'custom'
-    ? { min: t.android_min || '', latest: t.android_latest || '' }
+    ? {
+        min: (platform === 'ios' ? (t.ios_min || '') : (t.android_min || '')),
+        latest: (platform === 'ios' ? (t.ios_latest || '') : (t.android_latest || '')),
+      }
     : { min: t.target_version || '', latest: t.target_version || '' };
 
   // Unified keys (selalu kirim agar Flutter bisa baca)
@@ -1512,9 +1515,13 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Template tidak ditemukan' });
 
     // Determine version from template
+    const existingPlatform = existing.platform || 'android';
     const newVersion = existing.mode === 'custom'
-      ? (existing.android_latest || existing.ios_latest || '')
+      ? (existingPlatform === 'ios' ? existing.ios_latest : existing.android_latest)
       : (existing.target_version || '');
+    if (!newVersion) {
+      return res.status(400).json({ error: 'Versi tidak boleh kosong' });
+    }
 
     if (!newVersion) {
       return res.status(400).json({ error: 'Versi tidak boleh kosong' });

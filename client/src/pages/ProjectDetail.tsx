@@ -466,10 +466,13 @@ export function ProjectDetail() {
       };
       if (rcMode === 'optional' || rcMode === 'force') body.target_version = rcTargetVersion;
       if (rcMode === 'custom') {
-        body.android_min = rcMinVersion;
-        body.android_latest = rcLatestVersion;
-        body.ios_min = rcMinVersion;
-        body.ios_latest = rcLatestVersion;
+        if (rcPlatform === 'android') {
+          body.android_min = rcMinVersion;
+          body.android_latest = rcLatestVersion;
+        } else {
+          body.ios_min = rcMinVersion;
+          body.ios_latest = rcLatestVersion;
+        }
       }
       body.platform = rcPlatform;
       body.android_store_url = rcAndroidStoreUrl;
@@ -509,9 +512,11 @@ export function ProjectDetail() {
       if (data.sync) {
         // Pick values based on current environment
         const vals = rcEnv === 'dev' ? data.sync.dev : data.sync.prod;
-        const syncMin = vals.android_min || vals.ios_min || '';
-        const syncLatest = vals.android_latest || vals.ios_latest || '';
-        rcSyncVersions.current = { min: syncMin, latest: syncLatest };
+        const syncMin = rcPlatform === 'android' ? (vals.android_min || '') : (vals.ios_min || '');
+        const syncLatest = rcPlatform === 'android' ? (vals.android_latest || '') : (vals.ios_latest || '');
+        const syncAllMin = vals.android_min || vals.ios_min || '';
+        const syncAllLatest = vals.android_latest || vals.ios_latest || '';
+        rcSyncVersions.current = { min: syncAllMin, latest: syncAllLatest };
         setRcMinVersion(syncMin);
         setRcLatestVersion(syncLatest);
         if (vals.android_store_url) setRcAndroidStoreUrl(vals.android_store_url);
@@ -605,11 +610,12 @@ export function ProjectDetail() {
     setRcEnv(template.suffix === '_dev' ? 'dev' : 'prod');
     setRcTemplateName(template.name + ' (copy)');
     setRcTargetVersion(template.target_version || '');
-    const tMin = template.android_min || template.ios_min || '';
-    const tLatest = template.android_latest || template.ios_latest || '';
+    const tPlatform = template.platform || 'android';
+    setRcPlatform(tPlatform);
+    const tMin = tPlatform === 'android' ? (template.android_min || '') : (template.ios_min || '');
+    const tLatest = tPlatform === 'android' ? (template.android_latest || '') : (template.ios_latest || '');
     setRcMinVersion(tMin);
     setRcLatestVersion(tLatest);
-    setRcPlatform(template.platform || 'android');
     setRcAndroidStoreUrl(template.android_store_url || '');
     setRcIosStoreUrl(template.ios_store_url || '');
     setRcTitle(template.update_title || '');
@@ -1430,10 +1436,10 @@ export function ProjectDetail() {
 
                   {(rcReviewData.android_min || rcReviewData.android_latest || rcReviewData.ios_min || rcReviewData.ios_latest) && (
                     <div className="grid grid-cols-2 gap-3">
-                      {rcReviewData.android_min && <div><span className="text-xs text-gray-400 block">Android Min</span><span className="text-sm font-mono">{rcReviewData.android_min}</span></div>}
-                      {rcReviewData.android_latest && <div><span className="text-xs text-gray-400 block">Android Latest</span><span className="text-sm font-mono">{rcReviewData.android_latest}</span></div>}
-                      {rcReviewData.ios_min && <div><span className="text-xs text-gray-400 block">iOS Min</span><span className="text-sm font-mono">{rcReviewData.ios_min}</span></div>}
-                      {rcReviewData.ios_latest && <div><span className="text-xs text-gray-400 block">iOS Latest</span><span className="text-sm font-mono">{rcReviewData.ios_latest}</span></div>}
+                      {(rcReviewData.platform !== 'ios') && rcReviewData.android_min && <div><span className="text-xs text-gray-400 block">Android Min</span><span className="text-sm font-mono">{rcReviewData.android_min}</span></div>}
+                      {(rcReviewData.platform !== 'ios') && rcReviewData.android_latest && <div><span className="text-xs text-gray-400 block">Android Latest</span><span className="text-sm font-mono">{rcReviewData.android_latest}</span></div>}
+                      {(rcReviewData.platform !== 'android') && rcReviewData.ios_min && <div><span className="text-xs text-gray-400 block">iOS Min</span><span className="text-sm font-mono">{rcReviewData.ios_min}</span></div>}
+                      {(rcReviewData.platform !== 'android') && rcReviewData.ios_latest && <div><span className="text-xs text-gray-400 block">iOS Latest</span><span className="text-sm font-mono">{rcReviewData.ios_latest}</span></div>}
                     </div>
                   )}
 
