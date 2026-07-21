@@ -1360,7 +1360,7 @@ export function ProjectDetail() {
 
           {/* Template List */}
           <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📋 Template Tersimpan {rcEnv === 'dev' ? '🟡 Dev' : '🟢 Prod'} ({rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length})</h4>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📋 Template Tersimpan {rcEnv === 'dev' ? '🟡 Dev' : '🟢 Prod'} ({rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length}){(() => { const env = rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')); const both = env.filter(t => t.platform === 'both').length; const android = env.filter(t => t.platform === 'android').length; const ios = env.filter(t => t.platform === 'ios').length; return ' — 🤖📱 ' + both + ' / 🤖 ' + android + ' / 📱 ' + ios; })()}</h4>
             {rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length === 0 ? (
               <p className="text-xs text-gray-400">Belum ada template untuk {rcEnv === 'dev' ? 'Dev' : 'Prod'}. Isi form di atas lalu klik Simpan Template.</p>
             ) : (
@@ -1378,6 +1378,12 @@ export function ProjectDetail() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-medium text-gray-800 truncate">{t.name}</span>
+                              {(() => {
+                                const p = t.platform || parsedParams.platform || 'both';
+                                const badge = p === 'android' ? '🟢 Android' : p === 'ios' ? '🔵 iOS' : '⚪ Both';
+                                const cls = p === 'android' ? 'bg-green-50 text-green-700' : p === 'ios' ? 'bg-blue-50 text-blue-700' : 'bg-gray-200 text-gray-700';
+                                return <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${cls}`}>{badge}</span>;
+                              })()}
                               {isPublished ? (
                                 <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">✅ Published</span>
                               ) : (
