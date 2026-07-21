@@ -1564,15 +1564,15 @@ export function ProjectDetail() {
                             <>
                               <div className="flex items-center gap-2">
                                 <span className="text-gray-400 w-16">Android Min:</span>
-                                <span className="text-gray-500 line-through">{bc.android_min || '—'}</span>
-                                <span className="text-gray-300">→</span>
-                                <span className="font-medium text-emerald-700">{rcReviewData.android_min || '—'}</span>
+                                <span className={`${bc.android_min && bc.android_min !== (rcReviewData.android_min || '') ? 'text-gray-500 line-through' : 'text-gray-400'}`}>{bc.android_min || '—'}</span>
+                                {bc.android_min && bc.android_min !== (rcReviewData.android_min || '') && <span className="text-gray-300">→</span>}
+                                {bc.android_min && bc.android_min !== (rcReviewData.android_min || '') && <span className="font-medium text-emerald-700">{rcReviewData.android_min || '—'}</span>}
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-gray-400 w-16">Android Lts:</span>
-                                <span className="text-gray-500 line-through">{bc.android_latest || '—'}</span>
-                                <span className="text-gray-300">→</span>
-                                <span className="font-medium text-emerald-700">{rcReviewData.android_latest || '—'}</span>
+                                <span className={`${bc.android_latest && bc.android_latest !== (rcReviewData.android_latest || '') ? 'text-gray-500 line-through' : 'text-gray-400'}`}>{bc.android_latest || '—'}</span>
+                                {bc.android_latest && bc.android_latest !== (rcReviewData.android_latest || '') && <span className="text-gray-300">→</span>}
+                                {bc.android_latest && bc.android_latest !== (rcReviewData.android_latest || '') && <span className="font-medium text-emerald-700">{rcReviewData.android_latest || '—'}</span>}
                               </div>
                             </>
                           )}
@@ -1580,15 +1580,15 @@ export function ProjectDetail() {
                             <>
                               <div className="flex items-center gap-2">
                                 <span className="text-gray-400 w-16">iOS Min:</span>
-                                <span className="text-gray-500 line-through">{bc.ios_min || '—'}</span>
-                                <span className="text-gray-300">→</span>
-                                <span className="font-medium text-emerald-700">{rcReviewData.ios_min || '—'}</span>
+                                <span className={`${bc.ios_min && bc.ios_min !== (rcReviewData.ios_min || '') ? 'text-gray-500 line-through' : 'text-gray-400'}`}>{bc.ios_min || '—'}</span>
+                                {bc.ios_min && bc.ios_min !== (rcReviewData.ios_min || '') && <span className="text-gray-300">→</span>}
+                                {bc.ios_min && bc.ios_min !== (rcReviewData.ios_min || '') && <span className="font-medium text-emerald-700">{rcReviewData.ios_min || '—'}</span>}
                               </div>
                               <div className="flex items-center gap-2">
                                 <span className="text-gray-400 w-16">iOS Lts:</span>
-                                <span className="text-gray-500 line-through">{bc.ios_latest || '—'}</span>
-                                <span className="text-gray-300">→</span>
-                                <span className="font-medium text-emerald-700">{rcReviewData.ios_latest || '—'}</span>
+                                <span className={`${bc.ios_latest && bc.ios_latest !== (rcReviewData.ios_latest || '') ? 'text-gray-500 line-through' : 'text-gray-400'}`}>{bc.ios_latest || '—'}</span>
+                                {bc.ios_latest && bc.ios_latest !== (rcReviewData.ios_latest || '') && <span className="text-gray-300">→</span>}
+                                {bc.ios_latest && bc.ios_latest !== (rcReviewData.ios_latest || '') && <span className="font-medium text-emerald-700">{rcReviewData.ios_latest || '—'}</span>}
                               </div>
                             </>
                           )}
