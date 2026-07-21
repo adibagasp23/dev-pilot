@@ -610,11 +610,44 @@ export function ProjectDetail() {
     setRcReviewId(templateId);
     setRcReviewData(null);
     try {
-      const res = await fetch(`/api/remote-config/template/${templateId}`);
+      const [res, vcRes] = await Promise.all([
+        fetch(`/api/remote-config/template/${templateId}`),
+        fetch(`/api/app-config/tms-v2`),
+      ]);
       const data = await res.json();
+      const vcData = await vcRes.json().catch(() => ({ config: null }));
       if (data.template) {
         const params = data.template.params_json ? JSON.parse(data.template.params_json) : {};
-        setRcReviewData({ ...data.template, parsedParams: params });
+        const suffix = data.template.suffix || '';
+        // Parse current published config for before values
+        let beforeConfig: Record<string, string> = {};
+        if (vcData.config) {
+          const parsed = typeof vcData.config === 'string' ? JSON.parse(vcData.config) : vcData.config;
+          if (parsed) {
+            // Try suffixed keys first, then fallback to base keys
+            // Keys in stored config: minimum_version, latest_version + _dev suffix
+            const tryKey = (k: string) => parsed[`${k}${suffix}`] || (suffix ? parsed[k] : '') || '';
+            // For 'both' or 'android' platform, minimum_version/latest_version are android values
+            // For 'ios' platform, ios_minimum_version/ios_latest_version are used
+            const p = data.template.platform || 'both';
+            if (p === 'ios') {
+              beforeConfig = {
+                android_min: '',
+                android_latest: '',
+                ios_min: tryKey('minimum_version'),
+                ios_latest: tryKey('latest_version'),
+              };
+            } else {
+              beforeConfig = {
+                android_min: tryKey('minimum_version'),
+                android_latest: tryKey('latest_version'),
+                ios_min: tryKey('ios_minimum_version') || tryKey('minimum_version'),
+                ios_latest: tryKey('ios_latest_version') || tryKey('latest_version'),
+              };
+            }
+          }
+        }
+        setRcReviewData({ ...data.template, parsedParams: params, beforeConfig });
       }
     } catch (err: any) {
       setRcError(err.message);
@@ -1517,6 +1550,52 @@ export function ProjectDetail() {
                       {(rcReviewData.platform !== 'android') && rcReviewData.ios_latest && <div><span className="text-xs text-gray-400 block">iOS Latest</span><span className="text-sm font-mono">{rcReviewData.ios_latest}</span></div>}
                     </div>
                   )}
+
+                  {rcReviewData.beforeConfig && (() => {
+                    const bc = rcReviewData.beforeConfig;
+                    const hasBefore = bc.android_min || bc.android_latest || bc.ios_min || bc.ios_latest;
+                    if (!hasBefore) return null;
+                    const platform = rcReviewData.platform || 'both';
+                    return (
+                      <div className="border-t pt-1">
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">🔄 Before → After</h4>
+                        <div className="bg-amber-50 rounded-lg p-3 text-xs space-y-1.5">
+                          {(platform === 'both' || platform === 'android') && (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 w-16">Android Min:</span>
+                                <span className="text-gray-500 line-through">{bc.android_min || '—'}</span>
+                                <span className="text-gray-300">→</span>
+                                <span className="font-medium text-emerald-700">{rcReviewData.android_min || '—'}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 w-16">Android Lts:</span>
+                                <span className="text-gray-500 line-through">{bc.android_latest || '—'}</span>
+                                <span className="text-gray-300">→</span>
+                                <span className="font-medium text-emerald-700">{rcReviewData.android_latest || '—'}</span>
+                              </div>
+                            </>
+                          )}
+                          {(platform === 'both' || platform === 'ios') && (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 w-16">iOS Min:</span>
+                                <span className="text-gray-500 line-through">{bc.ios_min || '—'}</span>
+                                <span className="text-gray-300">→</span>
+                                <span className="font-medium text-emerald-700">{rcReviewData.ios_min || '—'}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-gray-400 w-16">iOS Lts:</span>
+                                <span className="text-gray-500 line-through">{bc.ios_latest || '—'}</span>
+                                <span className="text-gray-300">→</span>
+                                <span className="font-medium text-emerald-700">{rcReviewData.ios_latest || '—'}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   {(rcReviewData.android_store_url || rcReviewData.ios_store_url) && (
                     <div className="space-y-1">

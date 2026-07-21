@@ -1535,8 +1535,9 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
 
     const p = existing.platform || 'android';
 
+    let lastConfig = null;
     if (lastVc) {
-      const lastConfig = JSON.parse(lastVc.config_json);
+      lastConfig = JSON.parse(lastVc.config_json);
       const suffix = existing.suffix || '';
 
       const validateVersion = (ver, platformKey) => {
