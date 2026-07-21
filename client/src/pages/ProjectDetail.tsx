@@ -305,7 +305,21 @@ export function ProjectDetail() {
     }
   }, [rcTemplates]);
 
-
+  // Reset form when environment tab changes
+  useEffect(() => {
+    rcSyncData.current = { android: { min: '', latest: '' }, ios: { min: '', latest: '' } };
+    setRcAndroidMinVersion('');
+    setRcAndroidLatestVersion('');
+    setRcIosMinVersion('');
+    setRcIosLatestVersion('');
+    setRcTemplateName('');
+    setRcTargetVersion('');
+    setRcTitle('');
+    setRcMessage('');
+    setRcMode('baseline');
+    setRcResult('');
+    setRcError('');
+  }, [rcEnv]);
 
   const handleStart = async (procId: number) => {
     const updated = await api.startProcess(procId);
