@@ -1442,32 +1442,35 @@ function buildConfigFromTemplate(t) {
     return pair;
   };
 
-  const isAndroid = platform === 'android';
-  const isIos = platform === 'ios';
-
   let config = {};
-  const ver = t.mode === 'custom'
-    ? {
-        min: (platform === 'ios' ? (t.ios_min || '') : (t.android_min || '')),
-        latest: (platform === 'ios' ? (t.ios_latest || '') : (t.android_latest || '')),
-      }
-    : { min: t.target_version || '', latest: t.target_version || '' };
 
-  // Unified keys (selalu kirim agar Flutter bisa baca)
-  Object.assign(config, makeParam('minimum_version', ver.min));
-  Object.assign(config, makeParam('latest_version', ver.latest));
+  // Resolve per-platform versions
+  let androidMin = '', androidLatest = '', iosMin = '', iosLatest = '';
+  if (t.mode === 'custom') {
+    androidMin = t.android_min || '';
+    androidLatest = t.android_latest || '';
+    iosMin = t.ios_min || '';
+    iosLatest = t.ios_latest || '';
+  } else {
+    const tv = t.target_version || '';
+    androidMin = androidLatest = iosMin = iosLatest = tv;
+  }
+
+  // Unified keys — pakai nilai Android sebagai primary
+  Object.assign(config, makeParam('minimum_version', androidMin));
+  Object.assign(config, makeParam('latest_version', androidLatest));
 
   // Platform-specific keys sesuai dropdown
-  if (isAndroid) {
-    Object.assign(config, makeParam('android_minimum_version', ver.min));
-    Object.assign(config, makeParam('android_latest_version', ver.latest));
+  if (platform === 'android' || platform === 'both') {
+    Object.assign(config, makeParam('android_minimum_version', androidMin));
+    Object.assign(config, makeParam('android_latest_version', androidLatest));
     Object.assign(config, makeParam('android_update_title', t.update_title));
     Object.assign(config, makeParam('android_update_message', t.update_message));
     Object.assign(config, makeParam('android_store_url', t.android_store_url));
   }
-  if (isIos) {
-    Object.assign(config, makeParam('ios_minimum_version', ver.min));
-    Object.assign(config, makeParam('ios_latest_version', ver.latest));
+  if (platform === 'ios' || platform === 'both') {
+    Object.assign(config, makeParam('ios_minimum_version', iosMin));
+    Object.assign(config, makeParam('ios_latest_version', iosLatest));
     Object.assign(config, makeParam('ios_update_title', t.update_title));
     Object.assign(config, makeParam('ios_update_message', t.update_message));
     Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
@@ -1559,10 +1562,21 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
 
     // Capture before values (previous config)
     const suffixConfig = existing.suffix || '';
-    const beforeAndroidMin = lastConfig ? (lastConfig[`android_minimum_version${suffixConfig}`] || (suffixConfig ? lastConfig['android_minimum_version'] : '') || '') : '';
-    const beforeAndroidLatest = lastConfig ? (lastConfig[`android_latest_version${suffixConfig}`] || (suffixConfig ? lastConfig['android_latest_version'] : '') || '') : '';
-    const beforeIosMin = lastConfig ? (lastConfig[`ios_minimum_version${suffixConfig}`] || (suffixConfig ? lastConfig['ios_minimum_version'] : '') || '') : '';
-    const beforeIosLatest = lastConfig ? (lastConfig[`ios_latest_version${suffixConfig}`] || (suffixConfig ? lastConfig['ios_latest_version'] : '') || '') : '';
+    const cfgKey = (pref) => {
+      if (!lastConfig) return '';
+      const suffixed = pref + suffixConfig;
+      const base = pref;
+      const unifiedSuffixed = 'minimum_version' + suffixConfig;
+      const unified = 'minimum_version';
+      const latestSuffixed = 'latest_version' + suffixConfig;
+      const latest = 'latest_version';
+      const isLatest = pref.includes('latest');
+      return lastConfig[suffixed] || lastConfig[base] || lastConfig[isLatest ? latestSuffixed : unifiedSuffixed] || lastConfig[isLatest ? latest : unified] || '';
+    };
+    const beforeAndroidMin = cfgKey('android_minimum_version');
+    const beforeAndroidLatest = cfgKey('android_latest_version');
+    const beforeIosMin = cfgKey('ios_minimum_version');
+    const beforeIosLatest = cfgKey('ios_latest_version');
 
     // Build config JSON from template
     const config = buildConfigFromTemplate(existing);
