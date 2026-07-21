@@ -1421,21 +1421,33 @@ function buildConfigFromTemplate(t) {
   };
 
   let config = {};
+  const ver = t.mode === 'custom'
+    ? { min: t.android_min || '', latest: t.android_latest || '' }
+    : { min: t.target_version || '', latest: t.target_version || '' };
 
-  if (t.mode === 'custom') {
-    Object.assign(config, makeParam('minimum_version', t.android_min));
-    Object.assign(config, makeParam('latest_version', t.android_latest));
-  } else {
-    // baseline / optional / force: target_version applies to both min & latest
-    const ver = t.target_version || '';
-    Object.assign(config, makeParam('minimum_version', ver));
-    Object.assign(config, makeParam('latest_version', ver));
-  }
+  // Kirim unified keys (baru)
+  Object.assign(config, makeParam('minimum_version', ver.min));
+  Object.assign(config, makeParam('latest_version', ver.latest));
 
-  Object.assign(config, makeParam('android_store_url', t.android_store_url));
-  Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
+  // Kirim platform-specific keys (lama) agar kompatibel dengan master
+  Object.assign(config, makeParam('android_minimum_version', ver.min));
+  Object.assign(config, makeParam('android_latest_version', ver.latest));
+  Object.assign(config, makeParam('ios_minimum_version', ver.min));
+  Object.assign(config, makeParam('ios_latest_version', ver.latest));
+
+  // Unified title/message (baru)
   Object.assign(config, makeParam('update_title', t.update_title));
   Object.assign(config, makeParam('update_message', t.update_message));
+
+  // Platform-specific title/message (lama, untuk kompatibilitas master)
+  Object.assign(config, makeParam('android_update_title', t.update_title));
+  Object.assign(config, makeParam('android_update_message', t.update_message));
+  Object.assign(config, makeParam('ios_update_title', t.update_title));
+  Object.assign(config, makeParam('ios_update_message', t.update_message));
+
+  // Store URLs (tetap platform-specific)
+  Object.assign(config, makeParam('android_store_url', t.android_store_url));
+  Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
 
   return config;
 }
