@@ -86,6 +86,7 @@ export default function RemoteConfig() {
                   <th className="py-2 pr-3">#</th>
                   <th className="py-2 pr-3">Waktu</th>
                   <th className="py-2 pr-3">Mode</th>
+                  <th className="py-2 pr-3">Platform</th>
                   <th className="py-2 pr-3">Android</th>
                   <th className="py-2 pr-3">iOS</th>
                   <th className="py-2 pr-2">Status</th>
@@ -104,6 +105,17 @@ export default function RemoteConfig() {
                       <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${MODE_COLORS[h.mode] || 'bg-gray-100'}`}>
                         {MODE_LABELS[h.mode] || h.mode}
                       </span>
+                    </td>
+                    <td className="py-2 pr-3">
+                      {(() => {
+                        const hasBoth = h.android_min && h.ios_min && h.android_min !== '?' && h.ios_min !== '?';
+                        const hasAndroid = h.android_min && h.android_min !== '?';
+                        const hasIos = h.ios_min && h.ios_min !== '?';
+                        if (hasBoth) return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-gray-200 text-gray-700">⚪ Both</span>;
+                        if (hasAndroid) return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-green-50 text-green-700">🤖 Android</span>;
+                        if (hasIos) return <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-blue-50 text-blue-700">📱 iOS</span>;
+                        return <span className="text-xs text-gray-400">—</span>;
+                      })()}
                     </td>
                     <td className="py-2 pr-3 text-xs font-mono">
                       <span className="text-gray-800">{h.android_min || '?'}</span>
