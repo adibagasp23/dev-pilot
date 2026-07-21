@@ -541,11 +541,11 @@ export function ProjectDetail() {
         // Set mode to 'custom' so all fields are visible after sync
         setRcMode('custom');
         // Fill target_version from version values
-        if (syncLatest) setRcTargetVersion(syncLatest);
+        if (curSync.latest) setRcTargetVersion(curSync.latest);
         // Auto-open Opsi tambahan modal
         setTimeout(() => setRcShowExtras(true), 100);
 
-        const syncVersion = data.version || syncLatest || '';
+        const syncVersion = data.version || curSync.latest || '';
         setRcTemplateName(`v${syncVersion}`);
         setRcResult(`✅ Berhasil sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} (versi ${data.version || '?'}). Form sudah terisi.`);
       } else {
