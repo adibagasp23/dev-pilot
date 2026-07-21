@@ -45,8 +45,10 @@ export function ProjectDetail() {
   const [rcTemplateName, setRcTemplateName] = useState('');
   const [rcPlatform, setRcPlatform] = useState('both'); // 'android' | 'ios' | 'both'
   const [rcTargetVersion, setRcTargetVersion] = useState('');
-  const [rcMinVersion, setRcMinVersion] = useState('');
-  const [rcLatestVersion, setRcLatestVersion] = useState('');
+  const [rcAndroidMinVersion, setRcAndroidMinVersion] = useState('');
+  const [rcAndroidLatestVersion, setRcAndroidLatestVersion] = useState('');
+  const [rcIosMinVersion, setRcIosMinVersion] = useState('');
+  const [rcIosLatestVersion, setRcIosLatestVersion] = useState('');
   const [rcAndroidStoreUrl, setRcAndroidStoreUrl] = useState('https://play.google.com/store/apps/details?id=co.id.kibumn.tms.tenancy&hl=id');
   const [rcIosStoreUrl, setRcIosStoreUrl] = useState('https://apps.apple.com/id/app/tenant-apps-kawasan-industri/id1671143383');
   const [rcTitle, setRcTitle] = useState('');
@@ -157,8 +159,8 @@ export function ProjectDetail() {
     }
     if (rcMode === 'custom') {
       [
-        { val: rcMinVersion, field: 'min_version' },
-        { val: rcLatestVersion, field: 'latest_version' },
+        { val: rcPlatform === 'ios' ? rcIosMinVersion : rcAndroidMinVersion, field: 'min_version' },
+        { val: rcPlatform === 'ios' ? rcIosLatestVersion : rcAndroidLatestVersion, field: 'latest_version' },
       ].forEach(({ val, field }) => {
         if (val) {
           const r = versionSchema.safeParse(val);
@@ -303,15 +305,7 @@ export function ProjectDetail() {
     }
   }, [rcTemplates]);
 
-  // Sync version fields when platform changes (from stored sync data)
-  useEffect(() => {
-    const key = rcPlatform === 'both' ? 'android' : rcPlatform;
-    const sync = rcSyncData.current[key as 'android' | 'ios'];
-    if (sync?.min || sync?.latest) {
-      setRcMinVersion(sync.min);
-      setRcLatestVersion(sync.latest);
-    }
-  }, [rcPlatform]);
+
 
   const handleStart = async (procId: number) => {
     const updated = await api.startProcess(procId);
@@ -456,7 +450,7 @@ export function ProjectDetail() {
 
     // Wajib sync dulu kalo versi masih kosong
     const hasVersion = rcMode === 'custom'
-      ? (rcMinVersion || rcLatestVersion)
+      ? (rcAndroidMinVersion || rcAndroidLatestVersion || rcIosMinVersion || rcIosLatestVersion)
       : !!rcTargetVersion;
     if (!hasVersion) {
       setRcError(`Silakan sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} terlebih dahulu untuk mendapatkan versi terbaru.`);
@@ -477,16 +471,16 @@ export function ProjectDetail() {
       if (rcMode === 'optional' || rcMode === 'force') body.target_version = rcTargetVersion;
       if (rcMode === 'custom') {
         if (rcPlatform === 'android') {
-          body.android_min = rcMinVersion;
-          body.android_latest = rcLatestVersion;
+          body.android_min = rcAndroidMinVersion;
+          body.android_latest = rcAndroidLatestVersion;
         } else if (rcPlatform === 'ios') {
-          body.ios_min = rcMinVersion;
-          body.ios_latest = rcLatestVersion;
+          body.ios_min = rcIosMinVersion;
+          body.ios_latest = rcIosLatestVersion;
         } else {
-          body.android_min = rcMinVersion;
-          body.android_latest = rcLatestVersion;
-          body.ios_min = rcMinVersion;
-          body.ios_latest = rcLatestVersion;
+          body.android_min = rcAndroidMinVersion;
+          body.android_latest = rcAndroidLatestVersion;
+          body.ios_min = rcIosMinVersion;
+          body.ios_latest = rcIosLatestVersion;
         }
       }
       body.platform = rcPlatform;
@@ -537,8 +531,10 @@ export function ProjectDetail() {
         };
         rcSyncData.current = { android: syncAndroid, ios: syncIos };
         const curSync = rcPlatform === 'ios' ? syncIos : syncAndroid;
-        setRcMinVersion(curSync.min);
-        setRcLatestVersion(curSync.latest);
+        setRcAndroidMinVersion(syncAndroid.min);
+        setRcAndroidLatestVersion(syncAndroid.latest);
+        setRcIosMinVersion(syncIos.min);
+        setRcIosLatestVersion(syncIos.latest);
         if (vals.android_store_url) setRcAndroidStoreUrl(vals.android_store_url);
         if (vals.ios_store_url) setRcIosStoreUrl(vals.ios_store_url);
         setRcTitle(vals.update_title || '');
@@ -630,12 +626,11 @@ export function ProjectDetail() {
     setRcEnv(template.suffix === '_dev' ? 'dev' : 'prod');
     setRcTemplateName(template.name + ' (copy)');
     setRcTargetVersion(template.target_version || '');
-    const tPlatform = template.platform || 'both';
-    setRcPlatform(tPlatform);
-    const tMin = tPlatform === 'android' ? (template.android_min || '') : tPlatform === 'ios' ? (template.ios_min || '') : (template.android_min || template.ios_min || '');
-    const tLatest = tPlatform === 'android' ? (template.android_latest || '') : tPlatform === 'ios' ? (template.ios_latest || '') : (template.android_latest || template.ios_latest || '');
-    setRcMinVersion(tMin);
-    setRcLatestVersion(tLatest);
+    setRcPlatform(template.platform || 'both');
+    setRcAndroidMinVersion(template.android_min || '');
+    setRcAndroidLatestVersion(template.android_latest || '');
+    setRcIosMinVersion(template.ios_min || '');
+    setRcIosLatestVersion(template.ios_latest || '');
     setRcAndroidStoreUrl(template.android_store_url || '');
     setRcIosStoreUrl(template.ios_store_url || '');
     setRcTitle(template.update_title || '');
@@ -1240,10 +1235,24 @@ export function ProjectDetail() {
               )}
 
               {/* Custom versions */}
-              {rcMode === 'custom' && (
+              {rcMode === 'custom' && rcPlatform === 'both' && (
+                <>
+                  <div className="text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">🤖 Android</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <VersionSelect value={rcAndroidMinVersion} onChange={setRcAndroidMinVersion} field="min_version" baseSync={rcSyncData.current.android.min} label="Min Version" />
+                    <VersionSelect value={rcAndroidLatestVersion} onChange={setRcAndroidLatestVersion} field="latest_version" baseSync={rcSyncData.current.android.latest} label="Latest Version" />
+                  </div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">📱 iOS</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <VersionSelect value={rcIosMinVersion} onChange={setRcIosMinVersion} field="min_version" baseSync={rcSyncData.current.ios.min} label="Min Version" />
+                    <VersionSelect value={rcIosLatestVersion} onChange={setRcIosLatestVersion} field="latest_version" baseSync={rcSyncData.current.ios.latest} label="Latest Version" />
+                  </div>
+                </>
+              )}
+              {rcMode === 'custom' && rcPlatform !== 'both' && (
                 <div className="grid grid-cols-2 gap-3">
-                  <VersionSelect value={rcMinVersion} onChange={setRcMinVersion} field="min_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).min} label="Min Version" />
-                  <VersionSelect value={rcLatestVersion} onChange={setRcLatestVersion} field="latest_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).latest} label="Latest Version" />
+                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidMinVersion : rcIosMinVersion} onChange={rcPlatform === 'android' ? setRcAndroidMinVersion : setRcIosMinVersion} field="min_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).min} label="Min Version" />
+                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidLatestVersion : rcIosLatestVersion} onChange={rcPlatform === 'android' ? setRcAndroidLatestVersion : setRcIosLatestVersion} field="latest_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).latest} label="Latest Version" />
                 </div>
               )}
 
