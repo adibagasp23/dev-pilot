@@ -43,7 +43,7 @@ export function ProjectDetail() {
   const [rcMode, setRcMode] = useState('baseline');
   const [rcEnv, setRcEnv] = useState('dev'); // 'dev' | 'prod'
   const [rcTemplateName, setRcTemplateName] = useState('');
-  const [rcPlatform, setRcPlatform] = useState('android'); // 'android' | 'ios'
+  const [rcPlatform, setRcPlatform] = useState('both'); // 'android' | 'ios' | 'both'
   const [rcTargetVersion, setRcTargetVersion] = useState('');
   const [rcMinVersion, setRcMinVersion] = useState('');
   const [rcLatestVersion, setRcLatestVersion] = useState('');
@@ -305,10 +305,11 @@ export function ProjectDetail() {
 
   // Sync version fields when platform changes (from stored sync data)
   useEffect(() => {
-    const sync = rcSyncData.current[rcPlatform];
-    if (sync) {
-      setRcMinVersion(prev => sync.min || prev);
-      setRcLatestVersion(prev => sync.latest || prev);
+    const key = rcPlatform === 'both' ? 'android' : rcPlatform;
+    const sync = rcSyncData.current[key as 'android' | 'ios'];
+    if (sync?.min || sync?.latest) {
+      setRcMinVersion(sync.min);
+      setRcLatestVersion(sync.latest);
     }
   }, [rcPlatform]);
 
@@ -478,7 +479,12 @@ export function ProjectDetail() {
         if (rcPlatform === 'android') {
           body.android_min = rcMinVersion;
           body.android_latest = rcLatestVersion;
+        } else if (rcPlatform === 'ios') {
+          body.ios_min = rcMinVersion;
+          body.ios_latest = rcLatestVersion;
         } else {
+          body.android_min = rcMinVersion;
+          body.android_latest = rcLatestVersion;
           body.ios_min = rcMinVersion;
           body.ios_latest = rcLatestVersion;
         }
@@ -530,7 +536,7 @@ export function ProjectDetail() {
           latest: vals.ios_latest || '',
         };
         rcSyncData.current = { android: syncAndroid, ios: syncIos };
-        const curSync = rcPlatform === 'android' ? syncAndroid : syncIos;
+        const curSync = rcPlatform === 'ios' ? syncIos : syncAndroid;
         setRcMinVersion(curSync.min);
         setRcLatestVersion(curSync.latest);
         if (vals.android_store_url) setRcAndroidStoreUrl(vals.android_store_url);
@@ -624,10 +630,10 @@ export function ProjectDetail() {
     setRcEnv(template.suffix === '_dev' ? 'dev' : 'prod');
     setRcTemplateName(template.name + ' (copy)');
     setRcTargetVersion(template.target_version || '');
-    const tPlatform = template.platform || 'android';
+    const tPlatform = template.platform || 'both';
     setRcPlatform(tPlatform);
-    const tMin = tPlatform === 'android' ? (template.android_min || '') : (template.ios_min || '');
-    const tLatest = tPlatform === 'android' ? (template.android_latest || '') : (template.ios_latest || '');
+    const tMin = tPlatform === 'android' ? (template.android_min || '') : tPlatform === 'ios' ? (template.ios_min || '') : (template.android_min || template.ios_min || '');
+    const tLatest = tPlatform === 'android' ? (template.android_latest || '') : tPlatform === 'ios' ? (template.ios_latest || '') : (template.android_latest || template.ios_latest || '');
     setRcMinVersion(tMin);
     setRcLatestVersion(tLatest);
     setRcAndroidStoreUrl(template.android_store_url || '');
@@ -1188,6 +1194,12 @@ export function ProjectDetail() {
                 <div className="flex rounded-lg border overflow-hidden mt-1">
 
                   <button
+                    onClick={() => setRcPlatform('both')}
+                    className={`flex-1 py-2 text-sm font-medium transition ${rcPlatform === 'both' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    🤖📱 Both
+                  </button>
+                  <button
                     onClick={() => setRcPlatform('android')}
                     className={`flex-1 py-2 text-sm font-medium transition ${rcPlatform === 'android' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
@@ -1222,7 +1234,7 @@ export function ProjectDetail() {
                   value={rcTargetVersion}
                   onChange={setRcTargetVersion}
                   field="target_version"
-                  baseSync={rcSyncData.current[rcPlatform].latest || rcSyncData.current[rcPlatform].min}
+                  baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).latest || (rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).min}
                   label={rcMode === 'optional' ? 'Versi target latest' : 'Versi target minimum/latest'}
                 />
               )}
@@ -1230,8 +1242,8 @@ export function ProjectDetail() {
               {/* Custom versions */}
               {rcMode === 'custom' && (
                 <div className="grid grid-cols-2 gap-3">
-                  <VersionSelect value={rcMinVersion} onChange={setRcMinVersion} field="min_version" baseSync={rcSyncData.current[rcPlatform].min} label="Min Version" />
-                  <VersionSelect value={rcLatestVersion} onChange={setRcLatestVersion} field="latest_version" baseSync={rcSyncData.current[rcPlatform].latest} label="Latest Version" />
+                  <VersionSelect value={rcMinVersion} onChange={setRcMinVersion} field="min_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).min} label="Min Version" />
+                  <VersionSelect value={rcLatestVersion} onChange={setRcLatestVersion} field="latest_version" baseSync={(rcSyncData.current[rcPlatform as keyof typeof rcSyncData.current] || rcSyncData.current.android).latest} label="Latest Version" />
                 </div>
               )}
 
@@ -1375,10 +1387,18 @@ export function ProjectDetail() {
                   <button onClick={() => setRcShowExtras(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
                 </div>
                 <div className="p-4 space-y-3">
-                  <div>
-                    <label className="text-xs font-medium text-gray-500">Store URL</label>
-                    <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcPlatform === 'android' ? rcAndroidStoreUrl : rcIosStoreUrl}</p>
-                  </div>
+                  {rcPlatform !== 'ios' && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Android Store URL</label>
+                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcAndroidStoreUrl}</p>
+                    </div>
+                  )}
+                  {rcPlatform !== 'android' && (
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">iOS Store URL</label>
+                      <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcIosStoreUrl}</p>
+                    </div>
+                  )}
                   <div>
                     <label className="text-xs font-medium text-gray-500">Update Title</label>
                     <textarea value={rcTitle} onChange={e => setRcTitle(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={2} />

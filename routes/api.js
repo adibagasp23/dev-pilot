@@ -1341,8 +1341,8 @@ async function enrichTemplate(db, id) {
   if (row) {
     try {
       const p = JSON.parse(row.params_json || '{}');
-      row.platform = p.platform || 'android';
-    } catch { row.platform = 'android'; }
+      row.platform = p.platform || 'both';
+    } catch { row.platform = 'both'; }
   }
   return row;
 }
