@@ -86,7 +86,6 @@ export default function RemoteConfig() {
                   <th className="py-2 pr-3">#</th>
                   <th className="py-2 pr-3">Waktu</th>
                   <th className="py-2 pr-3">Mode</th>
-                  <th className="py-2 pr-3">Suffix</th>
                   <th className="py-2 pr-3">Android</th>
                   <th className="py-2 pr-3">iOS</th>
                   <th className="py-2 pr-2">Status</th>
@@ -105,9 +104,6 @@ export default function RemoteConfig() {
                       <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${MODE_COLORS[h.mode] || 'bg-gray-100'}`}>
                         {MODE_LABELS[h.mode] || h.mode}
                       </span>
-                    </td>
-                    <td className="py-2 pr-3 text-xs font-mono">
-                      {h.suffix ? <span className="text-emerald-600">{h.suffix}</span> : <span className="text-gray-400">—</span>}
                     </td>
                     <td className="py-2 pr-3 text-xs font-mono">
                       <span className="text-gray-800">{h.android_min || '?'}</span>

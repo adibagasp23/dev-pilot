@@ -1263,7 +1263,6 @@ export function ProjectDetail() {
                                 t.mode === 'baseline' ? 'bg-gray-100 text-gray-700' :
                                 'bg-purple-100 text-purple-700'
                               }`}>{t.mode}</span>
-                              {t.suffix && <span className="font-mono text-emerald-600">{t.suffix}</span>}
                               <span>{new Date(t.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                             </div>
                           </div>
@@ -1386,10 +1385,6 @@ export function ProjectDetail() {
                       }`}>{rcReviewData.mode}</span>
                     </div>
                     <div>
-                      <span className="text-xs text-gray-400 block">Suffix</span>
-                      <span className="text-sm font-mono mt-1 inline-block">{rcReviewData.suffix || <span className="text-gray-400">—</span>}</span>
-                    </div>
-                    <div>
                       <span className="text-xs text-gray-400 block">Status</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 inline-block ${
                         rcReviewData.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'
@@ -1474,7 +1469,6 @@ export function ProjectDetail() {
                     <tr className="border-b text-left text-gray-400">
                       <th className="py-1.5 pr-2">Waktu</th>
                       <th className="py-1.5 pr-2">Mode</th>
-                      <th className="py-1.5 pr-2">Suffix</th>
                       <th className="py-1.5 pr-2">Android</th>
                       <th className="py-1.5">Status</th>
                     </tr>
@@ -1496,9 +1490,6 @@ export function ProjectDetail() {
                           }`}>
                             {h.mode}
                           </span>
-                        </td>
-                        <td className="py-1.5 pr-2 font-mono">
-                          {h.suffix ? <span className="text-emerald-600">{h.suffix}</span> : <span className="text-gray-400">—</span>}
                         </td>
                         <td className="py-1.5 pr-2 font-mono">
                           {h.android_min || '?'}
