@@ -59,7 +59,7 @@ export function ProjectDetail() {
   const [rcReviewId, setRcReviewId] = useState<number | null>(null);
   const [rcVersionErrors, setRcVersionErrors] = useState<Record<string, string>>({});
   const [rcCustomVersionInput, setRcCustomVersionInput] = useState<Record<string, boolean>>({});
-  const rcSyncVersions = useRef({ min: '', latest: '' });
+  const rcSyncData = useRef<{ android: { min: string; latest: string }; ios: { min: string; latest: string } }>({ android: { min: '', latest: '' }, ios: { min: '', latest: '' } });
 
   const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Format harus x.y.z (contoh: 2.0.4)');
 
@@ -303,6 +303,15 @@ export function ProjectDetail() {
     }
   }, [rcTemplates]);
 
+  // Sync version fields when platform changes (from stored sync data)
+  useEffect(() => {
+    const sync = rcSyncData.current[rcPlatform];
+    if (sync) {
+      setRcMinVersion(prev => sync.min || prev);
+      setRcLatestVersion(prev => sync.latest || prev);
+    }
+  }, [rcPlatform]);
+
   const handleStart = async (procId: number) => {
     const updated = await api.startProcess(procId);
     setProcesses((prev) => {
@@ -512,13 +521,18 @@ export function ProjectDetail() {
       if (data.sync) {
         // Pick values based on current environment
         const vals = rcEnv === 'dev' ? data.sync.dev : data.sync.prod;
-        const syncMin = rcPlatform === 'android' ? (vals.android_min || '') : (vals.ios_min || '');
-        const syncLatest = rcPlatform === 'android' ? (vals.android_latest || '') : (vals.ios_latest || '');
-        const syncAllMin = vals.android_min || vals.ios_min || '';
-        const syncAllLatest = vals.android_latest || vals.ios_latest || '';
-        rcSyncVersions.current = { min: syncAllMin, latest: syncAllLatest };
-        setRcMinVersion(syncMin);
-        setRcLatestVersion(syncLatest);
+        const syncAndroid = {
+          min: vals.android_min || '',
+          latest: vals.android_latest || '',
+        };
+        const syncIos = {
+          min: vals.ios_min || '',
+          latest: vals.ios_latest || '',
+        };
+        rcSyncData.current = { android: syncAndroid, ios: syncIos };
+        const curSync = rcPlatform === 'android' ? syncAndroid : syncIos;
+        setRcMinVersion(curSync.min);
+        setRcLatestVersion(curSync.latest);
         if (vals.android_store_url) setRcAndroidStoreUrl(vals.android_store_url);
         if (vals.ios_store_url) setRcIosStoreUrl(vals.ios_store_url);
         setRcTitle(vals.update_title || '');
@@ -1208,7 +1222,7 @@ export function ProjectDetail() {
                   value={rcTargetVersion}
                   onChange={setRcTargetVersion}
                   field="target_version"
-                  baseSync={rcSyncVersions.current.latest || rcSyncVersions.current.min}
+                  baseSync={rcSyncData.current[rcPlatform].latest || rcSyncData.current[rcPlatform].min}
                   label={rcMode === 'optional' ? 'Versi target latest' : 'Versi target minimum/latest'}
                 />
               )}
@@ -1216,8 +1230,8 @@ export function ProjectDetail() {
               {/* Custom versions */}
               {rcMode === 'custom' && (
                 <div className="grid grid-cols-2 gap-3">
-                  <VersionSelect value={rcMinVersion} onChange={setRcMinVersion} field="min_version" baseSync={rcSyncVersions.current.min} label="Min Version" />
-                  <VersionSelect value={rcLatestVersion} onChange={setRcLatestVersion} field="latest_version" baseSync={rcSyncVersions.current.latest} label="Latest Version" />
+                  <VersionSelect value={rcMinVersion} onChange={setRcMinVersion} field="min_version" baseSync={rcSyncData.current[rcPlatform].min} label="Min Version" />
+                  <VersionSelect value={rcLatestVersion} onChange={setRcLatestVersion} field="latest_version" baseSync={rcSyncData.current[rcPlatform].latest} label="Latest Version" />
                 </div>
               )}
 
