@@ -1523,37 +1523,38 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
       return res.status(400).json({ error: 'Versi tidak boleh kosong' });
     }
 
-    if (!newVersion) {
-      return res.status(400).json({ error: 'Versi tidak boleh kosong' });
-    }
-
     // Check against last published version for the same env
     const slug = 'tms-v2';
     const lastVc = await db('version_configs').where('slug', slug).first();
-    if (lastVc) {
-      const lastConfig = JSON.parse(lastVc.config_json);
-      // Use suffix-derived key to compare same environment
-      const suffix = existing.suffix || '';
-      const lastKey = `latest_version${suffix}`;
-      const lastVersion = lastConfig[lastKey] || '';
-      if (lastVersion) {
-        const cmp = compareSemver(newVersion, lastVersion);
-        if (cmp <= 0) {
-          return res.status(400).json({
-            error: `Versi ${newVersion} tidak valid. Versi ${suffix ? 'Dev' : 'Prod'} terakhir: ${lastVersion}. Gunakan versi yang lebih baru.`,
-            lastVersion,
-            newVersion,
-            suffix,
-          });
-        }
-      }
-    }
 
     // Inject platform from params_json
     try {
       const pp = JSON.parse(existing.params_json || '{}');
       existing.platform = pp.platform || 'android';
     } catch { existing.platform = 'both'; }
+
+    const p = existing.platform || 'android';
+
+    if (lastVc) {
+      const lastConfig = JSON.parse(lastVc.config_json);
+      const suffix = existing.suffix || '';
+
+      const validateVersion = (ver, platformKey) => {
+        if (!ver) return null;
+        const lastVer = lastConfig[`latest_version${suffix}`] || lastConfig[`${platformKey}_latest_version${suffix}`] || '';
+        if (lastVer && compareSemver(ver, lastVer) <= 0) {
+          return `Versi ${ver} tidak valid (${platformKey}). Versi ${suffix ? 'Dev' : 'Prod'} terakhir: ${lastVer}. Gunakan versi yang lebih baru.`;
+        }
+        return null;
+      };
+
+      const errAndroid = (p === 'android' || p === 'both') ? validateVersion(existing.android_latest || existing.target_version, 'android') : null;
+      const errIos = (p === 'ios' || p === 'both') ? validateVersion(existing.ios_latest || existing.target_version, 'ios') : null;
+      const err = errAndroid || errIos;
+      if (err) {
+        return res.status(400).json({ error: err, lastVersion: errAndroid ? lastConfig[`latest_version${suffix}`] || '' : lastConfig[`ios_latest_version${suffix}`] || '', newVersion: errAndroid ? (existing.android_latest || existing.target_version) : (existing.ios_latest || existing.target_version), suffix });
+      }
+    }
 
     // Build config JSON from template
     const config = buildConfigFromTemplate(existing);
