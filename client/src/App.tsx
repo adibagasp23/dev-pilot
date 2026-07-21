@@ -7,6 +7,7 @@ import Monitor from './pages/Monitor';
 import PushApk from './pages/PushApk';
 import Tasks from './pages/Tasks';
 import MediaLibrary from './pages/MediaLibrary';
+import RemoteConfig from './pages/RemoteConfig';
 import { Snackbar } from './components/Snackbar';
 
 export default function App() {
@@ -15,7 +16,7 @@ export default function App() {
       <Snackbar />
       <div className="flex h-screen bg-gray-50">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto p-6">
+        <main className="flex-1 overflow-y-auto p-6 pt-14 sm:pt-6">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/project/:id" element={<ProjectDetail />} />
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/push-apk" element={<PushApk />} />
             <Route path="/tasks" element={<Tasks />} />
             <Route path="/media" element={<MediaLibrary />} />
+            <Route path="/remote-config" element={<RemoteConfig />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>
         </main>

@@ -1,16 +1,8 @@
 import { useEffect, useState, useRef } from 'react';
 import { toast } from '../components/Snackbar';
-
-interface AdbDevice {
-  id: string;
-  status: string;
-  hostname?: string;
-  model?: string;
-}
+import AdbDevicePanel from '../components/AdbDevicePanel';
 
 export default function PushApk() {
-  const [devices, setDevices] = useState<AdbDevice[]>([]);
-  const discoveredRef = useRef<AdbDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState('');
   const [filePath, setFilePath] = useState('');
   const [targetDir, setTargetDir] = useState('/sdcard/Application/');
@@ -19,8 +11,6 @@ export default function PushApk() {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [scanning, setScanning] = useState(false);
-  const [connecting, setConnecting] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState('');
 
@@ -29,34 +19,6 @@ export default function PushApk() {
   const filePickerRef = useRef<HTMLDivElement>(null);
 
   const addLog = (msg: string) => setLog(prev => [...prev, msg]);
-
-  const loadDevices = async () => {
-    try {
-      const res = await fetch('/api/adb-devices');
-      const data = await res.json();
-      const connected: AdbDevice[] = data.devices || [];
-      // Gabung device connected + discovered cache (yang belum connect)
-      const connectedIds = new Set(connected.map(d => d.id.replace(/:5555$/, '')));
-      const merged = [...connected];
-      for (const d of discoveredRef.current) {
-        if (!connectedIds.has(d.id.replace(/:5555$/, ''))) {
-          merged.push(d);
-        }
-      }
-      setDevices(merged);
-      if (connected.length > 0 && !selectedDevice) {
-        setSelectedDevice(connected[0].id);
-      }
-    } catch (err: any) {
-      addLog('❌ Gagal load devices: ' + err.message);
-    }
-  };
-
-  useEffect(() => {
-    loadDevices();
-    const interval = setInterval(loadDevices, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Tutup file picker kalo klik di luar
   useEffect(() => {
@@ -68,74 +30,6 @@ export default function PushApk() {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
-
-  const handleScanWifi = async () => {
-    setScanning(true);
-    addLog('🔍 Scanning jaringan untuk ADB device...');
-    try {
-      const res = await fetch('/api/adb-scan', { method: 'POST' });
-      const data = await res.json();
-      if (data.devices?.length > 0) {
-        addLog(`✅ Ditemukan ${data.devices.length} device (${data.hosts} host aktif)`);
-        data.devices.forEach((d: AdbDevice) => {
-          addLog(`   ${d.id}${d.hostname !== '—' ? ' (' + d.hostname + ')' : ''}`);
-        });
-        // Simpan di discoveredRef & trigger refresh
-        const existingIds = new Set(discoveredRef.current.map(d => d.id.replace(/:5555$/, '')));
-        const newItems = data.devices.filter((d: AdbDevice) => !existingIds.has(d.id.replace(/:5555$/, '')));
-        discoveredRef.current = [...discoveredRef.current, ...newItems];
-        loadDevices();
-      } else {
-        addLog('⚠️ Tidak ada device ADB ditemukan');
-        if (data.error) addLog('   ' + data.error);
-      }
-    } catch (err: any) {
-      addLog('❌ Scan gagal: ' + err.message);
-    } finally {
-      setScanning(false);
-    }
-  };
-
-  const handleConnect = async (ip: string) => {
-    setConnecting(ip);
-    addLog(`📡 Menghubungkan ke ${ip}...`);
-    try {
-      const res = await fetch('/api/adb-connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ip }),
-      });
-      const data = await res.json();
-      if (data.ok) {
-        setLog([]);
-        addLog(`✅ Terkoneksi ke ${ip}`);
-        setTimeout(loadDevices, 1000);
-      } else {
-        addLog(`❌ Gagal: ${data.error || data.output}`);
-      }
-    } catch (err: any) {
-      addLog('❌ Error: ' + err.message);
-    } finally {
-      setConnecting(null);
-    }
-  };
-
-  const handleDisconnectAll = async () => {
-    addLog('🔌 Memutuskan semua koneksi ADB...');
-    try {
-      const res = await fetch('/api/adb-disconnect-all', { method: 'POST' });
-      const data = await res.json();
-      if (data.ok) {
-        setLog([]);
-        addLog('✅ Semua koneksi diputus');
-        setTimeout(loadDevices, 1000);
-      } else {
-        addLog('❌ ' + (data.error || 'Gagal'));
-      }
-    } catch (err: any) {
-      addLog('❌ Error: ' + err.message);
-    }
-  };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -207,77 +101,24 @@ export default function PushApk() {
     }
   };
 
+  const handlePickApk = async () => {
+    try {
+      const res = await fetch('/api/push-apk-files');
+      const data = await res.json();
+      if (data.groups?.length > 0) {
+        setFileGroups(data.groups);
+        setSearchQuery('');
+        setFilePickerOpen(true);
+      }
+    } catch {}
+  };
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold">📤 Push APK</h1>
 
-      {/* ADB Devices */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-gray-600 uppercase">📱 ADB Devices</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={handleScanWifi}
-              disabled={scanning}
-              className="text-xs px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 transition"
-            >
-              {scanning ? '🔍 Scanning...' : '📡 Scan WiFi'}
-            </button>
-            <button onClick={handleDisconnectAll} className="text-xs px-3 py-1.5 bg-red-600 text-white rounded hover:bg-red-700 transition">
-              🔌 Disconnect All
-            </button>
-            <button onClick={() => { addLog('🔄 Refresh...'); loadDevices(); }} className="text-xs px-3 py-1.5 border rounded hover:bg-gray-50 transition">
-              🔄
-            </button>
-          </div>
-        </div>
-
-        {devices.length === 0 ? (
-          <p className="text-sm text-gray-400">Tidak ada device terhubung. Colok device via USB atau scan WiFi.</p>
-        ) : (
-          <div className="space-y-1">
-            {devices.map(d => (
-              <div key={d.id} className="flex items-center justify-between px-2 py-1.5 rounded hover:bg-gray-50">
-                <label className="flex items-center gap-2 cursor-pointer flex-1">
-                  <input
-                    type="radio"
-                    name="device"
-                    value={d.id}
-                    checked={selectedDevice === d.id}
-                    onChange={() => setSelectedDevice(d.id)}
-                    className="accent-blue-600"
-                  />
-                  <span className={`w-2 h-2 rounded-full ${d.status === 'device' ? 'bg-green-500' : d.status === 'offline' ? 'bg-yellow-500' : 'bg-red-500'}`} />
-                  <span className="text-sm font-mono">{d.id}</span>
-                  {d.model && (
-                    <span className="text-xs text-gray-500">{d.model}</span>
-                  )}
-                  {d.hostname && d.hostname !== '—' && (
-                    <span className="text-xs text-gray-400">({d.hostname})</span>
-                  )}
-                  <span className={`text-xs px-1.5 py-0.5 rounded ${
-                    d.status === 'device' ? 'bg-green-100 text-green-700' :
-                    d.status === 'discovered' ? 'bg-blue-100 text-blue-700' :
-                    d.status === 'offline' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-100 text-red-700'
-                  }`}>
-                    {d.status}
-                  </span>
-                </label>
-                {d.status !== 'device' && d.id.includes('.') && (
-                  <button
-                    onClick={() => handleConnect(d.id)}
-                    disabled={connecting === d.id}
-                    className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 transition"
-                  >
-                    {connecting === d.id ? '⏳' : '🔗 Connect'}
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ADB Devices — shared component */}
+      <AdbDevicePanel onLog={addLog} selectedDevice={selectedDevice} onDeviceSelect={setSelectedDevice} />
 
       {/* Terminal Log */}
       {log.length > 0 && (
@@ -345,17 +186,7 @@ export default function PushApk() {
           />
           <div className="relative">
             <button
-              onClick={async () => {
-                try {
-                  const res = await fetch('/api/push-apk-files');
-                  const data = await res.json();
-                  if (data.groups?.length > 0) {
-                    setFileGroups(data.groups);
-                    setSearchQuery('');
-                    setFilePickerOpen(true);
-                  }
-                } catch {}
-              }}
+              onClick={handlePickApk}
               className="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50 transition"
               title="Pilih APK dari project"
             >
@@ -432,9 +263,7 @@ export default function PushApk() {
               {fileGroups
                 .map(group => {
                   const filteredFiles = group.files.filter(f => {
-                    // Filter by search
                     if (searchQuery && !f.name.toLowerCase().includes(searchQuery.toLowerCase()) && !group.project.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-                    // Filter by type
                     if (filterType === 'APK' && !f.name.endsWith('.apk')) return false;
                     if (filterType === 'AAB' && !f.name.endsWith('.aab')) return false;
                     return true;

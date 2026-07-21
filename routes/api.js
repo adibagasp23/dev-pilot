@@ -3,6 +3,23 @@ const express = require('express');
 const router = express.Router();
 const { getDB } = require('../database/db');
 const { scanAllFolders, scanFolder } = require('../services/scanner');
+
+// Cari full path adb — cek beberapa lokasi umum + PATH
+function findAdb() {
+  const candidates = [
+    '/Users/adibagaspratama/Library/Android/sdk/platform-tools/adb',
+    process.env.ANDROID_HOME ? `${process.env.ANDROID_HOME}/platform-tools/adb` : '',
+    process.env.ANDROID_SDK_ROOT ? `${process.env.ANDROID_SDK_ROOT}/platform-tools/adb` : '',
+    'adb', // fallback ke PATH
+  ].filter(Boolean);
+  for (const c of candidates) {
+    try {
+      if (c === 'adb' || fs.existsSync(c)) return c;
+    } catch {}
+  }
+  return 'adb';
+}
+const ADB = findAdb();
 const { startProcess, stopProcess, sendInput, getLogs, clearLogs, subscribeSSE, unsubscribeSSE, processLogs, runningProcesses } = require('../services/process-manager');
 const fs = require('fs');
 const path = require('path');
@@ -500,7 +517,7 @@ router.get('/push-apk-files', async (req, res) => {
 router.get('/adb-devices', async (req, res) => {
   const { execSync } = require('child_process');
   try {
-    const output = execSync('adb devices', { encoding: 'utf8', timeout: 5000 });
+    const output = execSync(ADB + ' devices', { encoding: 'utf8', timeout: 5000 });
     const devices = output.split('\n')
       .slice(1)
       .filter(l => l.includes('\tdevice') || l.includes('\toffline') || l.includes('\tunauthorized'))
@@ -513,7 +530,7 @@ router.get('/adb-devices', async (req, res) => {
     for (const d of devices) {
       if (d.status === 'device') {
         try {
-          const model = execSync(`adb -s ${d.id} shell getprop ro.product.model 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim().replace(/\r/g, '');
+          const model = execSync(ADB + ` -s ${d.id} shell getprop ro.product.model 2>/dev/null`, { encoding: 'utf8', timeout: 3000 }).trim().replace(/\r/g, '');
           if (model) d.model = model;
         } catch {}
       }
@@ -629,8 +646,8 @@ router.post('/adb-connect', async (req, res) => {
   const { execSync } = require('child_process');
   try {
     // Disconnect dulu (ignore error kalo belum connect)
-    try { execSync('adb disconnect ' + ip, { timeout: 3000, shell: '/bin/bash' }); } catch {}
-    const result = execSync('adb connect ' + ip + ':5555', { encoding: 'utf8', timeout: 10000, shell: '/bin/bash' });
+    try { execSync(ADB + ' disconnect ' + ip, { timeout: 3000, shell: '/bin/bash' }); } catch {}
+    const result = execSync(ADB + ' connect ' + ip + ':5555', { encoding: 'utf8', timeout: 10000, shell: '/bin/bash' });
     const ok = result.toLowerCase().includes('connected');
     res.json({ ok, output: result.trim() });
   } catch (err) {
@@ -642,7 +659,7 @@ router.post('/adb-connect', async (req, res) => {
 router.post('/adb-disconnect-all', async (req, res) => {
   const { execSync } = require('child_process');
   try {
-    execSync('adb disconnect', { timeout: 5000 });
+    execSync(ADB + ' disconnect', { timeout: 5000 });
     res.json({ ok: true });
   } catch (err) {
     res.json({ ok: false, error: err.message });
@@ -675,7 +692,7 @@ router.post('/push-apk', upload.single('apk'), async (req, res) => {
   try {
     let finalDevice = deviceId;
     if (!finalDevice) {
-      const output = execSync('adb devices', { encoding: 'utf8', timeout: 5000 });
+      const output = execSync(ADB + ' devices', { encoding: 'utf8', timeout: 5000 });
       const lines = output.split('\n').filter(l => l.includes('\tdevice'));
       if (lines.length === 0) return res.status(400).json({ error: 'No ADB device connected' });
       finalDevice = lines[0].split('\t')[0];
@@ -688,7 +705,7 @@ router.post('/push-apk', upload.single('apk'), async (req, res) => {
     // Buat direktori target
     res.write('📁 Membuat direktori ' + targetDir + '...\n');
     try {
-      execSync('adb -s ' + finalDevice + ' shell mkdir -p "' + targetDir + '"', { timeout: 5000 });
+      execSync(ADB + ' -s ' + finalDevice + ' shell mkdir -p "' + targetDir + '"', { timeout: 5000 });
       res.write('✅ Direktori siap\n');
     } catch (e) {
       res.write('⚠️ Gagal buat direktori: ' + e.message + '\n');
@@ -697,7 +714,7 @@ router.post('/push-apk', upload.single('apk'), async (req, res) => {
     res.write('🚀 Push ' + apkName + ' ke ' + finalDevice + ':' + targetDir + '\n');
 
     // Spawn ADB push untuk streaming output
-    const child = spawn('adb', ['-s', finalDevice, 'push', apkPath, targetDir]);
+    const child = spawn(ADB, ['-s', finalDevice, 'push', apkPath, targetDir]);
     let fullOutput = '';
 
     child.stdout.on('data', (chunk) => {
@@ -1067,6 +1084,514 @@ router.put('/media/batch-move', async (req, res) => {
       });
     }
     res.json({ success: true, moved: ids.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Remote Config Run ──
+router.post('/remote-config/run', async (req, res) => {
+  try {
+    const {
+      mode,            // baseline | optional | force | custom
+      suffix,          // _dev | ''
+      target_version,  // untuk optional/force
+      android_min, android_latest, ios_min, ios_latest,  // untuk custom
+      android_store_url, ios_store_url,
+      update_title, update_message,
+    } = req.body;
+
+    if (!mode) {
+      return res.status(400).json({ error: 'mode wajib diisi' });
+    }
+
+    const scriptPath = path.join(process.env.HOME || '/Users/adibagaspratama', 'kit/tms/danareksa/tms-v.2/scripts/remote-config-update.sh');
+    const env = {
+      ...process.env,
+      RC_TARGET_VERSION: target_version || '',
+      RC_ANDROID_MIN: android_min || '',
+      RC_ANDROID_LATEST: android_latest || '',
+      RC_IOS_MIN: ios_min || '',
+      RC_IOS_LATEST: ios_latest || '',
+      RC_ANDROID_STORE_URL: android_store_url || '',
+      RC_IOS_STORE_URL: ios_store_url || '',
+      RC_UPDATE_TITLE: update_title || '',
+      RC_UPDATE_MESSAGE: update_message || '',
+      PROCESS_MANAGER_URL: 'http://localhost:9876',
+    };
+
+    const { spawn } = require('child_process');
+    const child = spawn('bash', [scriptPath, 'tms-v2-cf453', mode, suffix || '', '-y'], {
+      cwd: path.dirname(scriptPath),
+      env,
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (data) => { stdout += data.toString(); });
+    child.stderr.on('data', (data) => { stderr += data.toString(); });
+
+    child.on('close', (code) => {
+      res.json({
+        code,
+        success: code === 0,
+        stdout,
+        stderr,
+      });
+    });
+
+    child.on('error', (err) => {
+      res.status(500).json({ error: err.message });
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Remote Config History ──
+router.get('/remote-config-history/:projectId', async (req, res) => {
+  try {
+    const db = getDB();
+    const rows = await db('remote_config_history')
+      .where('project_id', req.params.projectId)
+      .orderBy('created_at', 'desc')
+      .limit(50);
+    res.json({ history: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/remote-config-history', async (req, res) => {
+  try {
+    const db = getDB();
+    const { project_id, mode, suffix, android_min, android_latest, ios_min, ios_latest, status, error_message } = req.body;
+    if (!project_id || !mode) {
+      return res.status(400).json({ error: 'project_id dan mode wajib diisi' });
+    }
+    const [id] = await db('remote_config_history').insert({
+      project_id, mode, suffix: suffix || '',
+      android_min, android_latest, ios_min, ios_latest,
+      status: status || 'success',
+      error_message: error_message || null,
+    });
+    res.json({ id });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── Remote Config Templates (Draft → Review → Publish) ──
+
+// Create/save a template (draft)
+// Sync current RC from Firebase (fill form with current values)
+router.get('/remote-config/sync/:projectId', async (req, res) => {
+  try {
+    const rcConfig = require('../config');
+    const apiKey = rcConfig.remoteConfig.apiKey;
+    const endpoint = rcConfig.remoteConfig.endpoint;
+    const env = req.query.env || 'dev';
+
+    // Pick the right backend based on environment
+    const backendUrl = env === 'dev' ? rcConfig.remoteConfig.devBackendUrl : rcConfig.remoteConfig.prodBackendUrl;
+
+    const fetchBackend = async (url) => {
+      const response = await fetch(`${url}${endpoint}`, {
+        headers: { 'X-API-Key': apiKey },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText || ''} dari ${url}${endpoint}`);
+      const data = await response.json();
+      return data.data || null;
+    };
+
+    let data;
+    try {
+      data = await fetchBackend(backendUrl);
+    } catch (fetchErr) {
+      const host = env === 'dev' ? 'localhost:8003' : 'kibumn.co.id';
+      return res.status(502).json({ error: `${fetchErr.message}`, unreachable: true });
+    }
+
+    if (!data) {
+      const host = env === 'dev' ? 'localhost:8003' : 'kibumn.co.id';
+      return res.status(502).json({ error: `Server ${host} tidak mengembalikan data`, unreachable: true });
+    }
+
+    // Extract prod (no suffix) and dev (_dev suffix) values from the same backend
+    // Mendukung format lama (android_minimum_version/ios_minimum_version) dan baru (minimum_version)
+    const extractProd = (d) => ({
+      android_min: d?.android_minimum_version || d?.minimum_version || '',
+      android_latest: d?.android_latest_version || d?.latest_version || '',
+      ios_min: d?.ios_minimum_version || d?.minimum_version || '',
+      ios_latest: d?.ios_latest_version || d?.latest_version || '',
+      android_store_url: d?.android_store_url || '',
+      ios_store_url: d?.ios_store_url || '',
+      update_title: d?.update_title || '',
+      update_message: d?.update_message || '',
+    });
+
+    const extractDev = (d) => ({
+      android_min: d?.['android_minimum_version_dev'] || d?.minimum_version_dev || '',
+      android_latest: d?.['android_latest_version_dev'] || d?.latest_version_dev || '',
+      ios_min: d?.['ios_minimum_version_dev'] || d?.minimum_version_dev || '',
+      ios_latest: d?.['ios_latest_version_dev'] || d?.latest_version_dev || '',
+      android_store_url: d?.['android_store_url_dev'] || '',
+      ios_store_url: d?.['ios_store_url_dev'] || '',
+      update_title: d?.['update_title_dev'] || '',
+      update_message: d?.['update_message_dev'] || '',
+    });
+
+    res.json({
+      sync: {
+        dev: extractDev(data),
+        prod: extractProd(data),
+      },
+      version: data?.latest_version || data?.android_latest_version || data?.latest_version_dev || data?.['android_latest_version_dev'] || null,
+    });
+  } catch (e) {
+    res.status(500).json({ error: 'Gagal sync dari backend: ' + e.message });
+  }
+});
+
+router.post('/remote-config/templates', async (req, res) => {
+  try {
+    const db = getDB();
+    const {
+      project_id, name, mode, suffix,
+      target_version, android_min, android_latest,
+      ios_min, ios_latest, android_store_url, ios_store_url,
+      update_title, update_message,
+    } = req.body;
+
+    if (!project_id || !mode) {
+      return res.status(400).json({ error: 'project_id dan mode wajib diisi' });
+    }
+
+    // Build params_json for review
+    const params = {
+      mode,
+      suffix: suffix || '',
+    };
+    if (mode === 'optional' || mode === 'force') params.target_version = target_version || '';
+    if (mode === 'custom') {
+      params.android_min = android_min || '';
+      params.android_latest = android_latest || '';
+      params.ios_min = ios_min || '';
+      params.ios_latest = ios_latest || '';
+    }
+    if (android_store_url) params.android_store_url = android_store_url;
+    if (ios_store_url) params.ios_store_url = ios_store_url;
+    if (update_title) params.update_title = update_title;
+    if (update_message) params.update_message = update_message;
+
+    const [id] = await db('remote_config_templates').insert({
+      project_id,
+      name: name || `Template ${new Date().toLocaleString('id-ID')}`,
+      mode,
+      suffix: suffix || '',
+      target_version: target_version || null,
+      android_min: android_min || null,
+      android_latest: android_latest || null,
+      ios_min: ios_min || null,
+      ios_latest: ios_latest || null,
+      android_store_url: android_store_url || null,
+      ios_store_url: ios_store_url || null,
+      update_title: update_title || null,
+      update_message: update_message || null,
+      params_json: JSON.stringify(params),
+      status: 'draft',
+    });
+
+    const template = await db('remote_config_templates').where('id', id).first();
+    res.json({ template });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// List templates for a project
+router.get('/remote-config/templates/:projectId', async (req, res) => {
+  try {
+    const db = getDB();
+    const rows = await db('remote_config_templates')
+      .where('project_id', req.params.projectId)
+      .orderBy('created_at', 'desc')
+      .limit(50);
+    res.json({ templates: rows });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get single template
+router.get('/remote-config/template/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const row = await db('remote_config_templates').where('id', req.params.id).first();
+    if (!row) return res.status(404).json({ error: 'Template tidak ditemukan' });
+    res.json({ template: row });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Update template
+router.put('/remote-config/template/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const {
+      name, mode, suffix,
+      target_version, android_min, android_latest,
+      ios_min, ios_latest, android_store_url, ios_store_url,
+      update_title, update_message,
+    } = req.body;
+
+    const existing = await db('remote_config_templates').where('id', req.params.id).first();
+    if (!existing) return res.status(404).json({ error: 'Template tidak ditemukan' });
+    if (existing.status === 'published') {
+      return res.status(400).json({ error: 'Template sudah dipublish, tidak bisa diedit' });
+    }
+
+    const updateData = { updated_at: db.fn.now() };
+    if (name !== undefined) updateData.name = name;
+    if (mode !== undefined) updateData.mode = mode;
+    if (suffix !== undefined) updateData.suffix = suffix;
+    if (target_version !== undefined) updateData.target_version = target_version;
+    if (android_min !== undefined) updateData.android_min = android_min;
+    if (android_latest !== undefined) updateData.android_latest = android_latest;
+    if (ios_min !== undefined) updateData.ios_min = ios_min;
+    if (ios_latest !== undefined) updateData.ios_latest = ios_latest;
+    if (android_store_url !== undefined) updateData.android_store_url = android_store_url;
+    if (ios_store_url !== undefined) updateData.ios_store_url = ios_store_url;
+    if (update_title !== undefined) updateData.update_title = update_title;
+    if (update_message !== undefined) updateData.update_message = update_message;
+
+    // Rebuild params_json
+    const params = { mode: updateData.mode || existing.mode, suffix: updateData.suffix ?? existing.suffix };
+    const m = params.mode;
+    const tv = updateData.target_version ?? existing.target_version;
+    if (m === 'optional' || m === 'force') params.target_version = tv || '';
+    if (m === 'custom') {
+      params.android_min = (updateData.android_min ?? existing.android_min) || '';
+      params.android_latest = (updateData.android_latest ?? existing.android_latest) || '';
+      params.ios_min = (updateData.ios_min ?? existing.ios_min) || '';
+      params.ios_latest = (updateData.ios_latest ?? existing.ios_latest) || '';
+    }
+    const asu = updateData.android_store_url ?? existing.android_store_url;
+    if (asu) params.android_store_url = asu;
+    const isu = updateData.ios_store_url ?? existing.ios_store_url;
+    if (isu) params.ios_store_url = isu;
+    const ut = updateData.update_title ?? existing.update_title;
+    if (ut) params.update_title = ut;
+    const um = updateData.update_message ?? existing.update_message;
+    if (um) params.update_message = um;
+    updateData.params_json = JSON.stringify(params);
+
+    await db('remote_config_templates').where('id', req.params.id).update(updateData);
+    const template = await db('remote_config_templates').where('id', req.params.id).first();
+    res.json({ template });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Delete template
+router.delete('/remote-config/template/:id', async (req, res) => {
+  try {
+    const db = getDB();
+    const existing = await db('remote_config_templates').where('id', req.params.id).first();
+    if (!existing) return res.status(404).json({ error: 'Template tidak ditemukan' });
+    await db('remote_config_templates').where('id', req.params.id).del();
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Build config JSON from template
+function buildConfigFromTemplate(t) {
+  const suffix = t.suffix || '';
+  const makeParam = (base, val) => {
+    const key = suffix ? `${base}${suffix}` : base;
+    const pair = {};
+    pair[key] = val || '';
+    return pair;
+  };
+
+  let config = {};
+
+  if (t.mode === 'custom') {
+    Object.assign(config, makeParam('minimum_version', t.android_min));
+    Object.assign(config, makeParam('latest_version', t.android_latest));
+  } else {
+    // baseline / optional / force: target_version applies to both min & latest
+    const ver = t.target_version || '';
+    Object.assign(config, makeParam('minimum_version', ver));
+    Object.assign(config, makeParam('latest_version', ver));
+  }
+
+  Object.assign(config, makeParam('android_store_url', t.android_store_url));
+  Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
+  Object.assign(config, makeParam('update_title', t.update_title));
+  Object.assign(config, makeParam('update_message', t.update_message));
+
+  return config;
+}
+
+// ── Public API: Flutter app fetches version config from here (no auth) ──
+router.get('/app-config/:slug', async (req, res) => {
+  try {
+    const db = getDB();
+    const vc = await db('version_configs').where('slug', req.params.slug).first();
+    if (!vc) {
+      return res.json({ config: {} });
+    }
+    res.json({ config: JSON.parse(vc.config_json) });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Publish template (Backend only — no Firebase)
+// Simple semver compare: returns -1 if a < b, 0 if a == b, 1 if a > b
+function compareSemver(a, b) {
+  const pa = (a || '0.0.0').split('.').map(Number);
+  const pb = (b || '0.0.0').split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const va = pa[i] || 0;
+    const vb = pb[i] || 0;
+    if (va > vb) return 1;
+    if (va < vb) return -1;
+  }
+  return 0;
+}
+
+router.post('/remote-config/template/:id/publish', async (req, res) => {
+  try {
+    const db = getDB();
+    const existing = await db('remote_config_templates').where('id', req.params.id).first();
+    if (!existing) return res.status(404).json({ error: 'Template tidak ditemukan' });
+
+    // Determine version from template
+    const newVersion = existing.mode === 'custom'
+      ? (existing.android_latest || existing.ios_latest || '')
+      : (existing.target_version || '');
+
+    if (!newVersion) {
+      return res.status(400).json({ error: 'Versi tidak boleh kosong' });
+    }
+
+    // Check against last published version for the same env
+    const slug = 'tms-v2';
+    const lastVc = await db('version_configs').where('slug', slug).first();
+    if (lastVc) {
+      const lastConfig = JSON.parse(lastVc.config_json);
+      // Use suffix-derived key to compare same environment
+      const suffix = existing.suffix || '';
+      const lastKey = `latest_version${suffix}`;
+      const lastVersion = lastConfig[lastKey] || '';
+      if (lastVersion) {
+        const cmp = compareSemver(newVersion, lastVersion);
+        if (cmp <= 0) {
+          return res.status(400).json({
+            error: `Versi ${newVersion} tidak valid. Versi ${suffix ? 'Dev' : 'Prod'} terakhir: ${lastVersion}. Gunakan versi yang lebih baru.`,
+            lastVersion,
+            newVersion,
+            suffix,
+          });
+        }
+      }
+    }
+
+    // Build config JSON from template
+    const config = buildConfigFromTemplate(existing);
+    const configJson = JSON.stringify(config);
+
+    // Project ID 16 = TMS v.2
+    const projectId = existing.project_id;
+
+    // Upsert into version_configs
+    const existingVc = await db('version_configs').where('slug', slug).first();
+    if (existingVc) {
+      await db('version_configs').where('slug', slug).update({
+        config_json: configJson,
+        published_at: db.raw("CURRENT_TIMESTAMP"),
+        template_id: existing.id,
+      });
+    } else {
+      await db('version_configs').insert({
+        project_id: projectId,
+        slug,
+        config_json: configJson,
+        published_at: db.raw("CURRENT_TIMESTAMP"),
+        template_id: existing.id,
+      });
+    }
+
+    // Update template status
+    await db('remote_config_templates').where('id', req.params.id).update({
+      status: 'published',
+      published_at: db.raw("CURRENT_TIMESTAMP"),
+      updated_at: db.raw("CURRENT_TIMESTAMP"),
+    });
+
+    // Record in history
+    const [historyId] = await db('remote_config_history').insert({
+      project_id: existing.project_id,
+      mode: existing.mode,
+      suffix: existing.suffix || '',
+      android_min: existing.android_min || existing.target_version,
+      android_latest: existing.android_latest || existing.target_version,
+      ios_min: existing.ios_min || existing.target_version,
+      ios_latest: existing.ios_latest || existing.target_version,
+      android_store_url: existing.android_store_url,
+      ios_store_url: existing.ios_store_url,
+      update_title: existing.update_title,
+      update_message: existing.update_message,
+      status: 'success',
+      error_message: null,
+    });
+
+    await db('remote_config_templates').where('id', req.params.id).update({ history_id: historyId });
+
+    // ── Push ke Backend API ──
+    const rcConfig = require('../config');
+    // Environment determined from template's stored suffix
+    const env = (existing.suffix || '') === '_dev' ? 'dev' : 'prod';
+    const backendUrl = env === 'dev' ? rcConfig.remoteConfig.devBackendUrl : rcConfig.remoteConfig.prodBackendUrl;
+    const apiKey = rcConfig.remoteConfig.apiKey;
+    const endpoint = rcConfig.remoteConfig.endpoint;
+
+    let backendResult = null;
+    try {
+      const response = await fetch(`${backendUrl}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': apiKey,
+        },
+        body: JSON.stringify(config),
+        signal: AbortSignal.timeout(10000),
+      });
+      backendResult = await response.json();
+    } catch (backendErr) {
+      backendResult = {
+        error: backendErr.message,
+        status: 'failed',
+      };
+    }
+
+    res.json({
+      success: true,
+      code: 0,
+      templateId: existing.id,
+      status: 'published',
+      config,
+      backendResult,
+      message: '✅ Template berhasil dipublish ke backend',
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
+import { z } from 'zod';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
 import KanbanBoard from '../components/KanbanBoard';
 import DatePicker from '../components/DatePicker';
@@ -9,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { toast } from '../components/Snackbar';
 import ProcessLogPanel from '../components/ProcessLogPanel';
+import AdbDevicePanel from '../components/AdbDevicePanel';
 
 export function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
@@ -32,10 +34,145 @@ export function ProjectDetail() {
   const [projectTasks, setProjectTasks] = useState<Task[]>([]);
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [taskStatuses, setTaskStatuses] = useState<TaskStatus[]>([]);
-  const [activeTab, setActiveTab] = useState<'commands' | 'tasks'>('commands');
+  const [activeTab, setActiveTab] = useState<'commands' | 'tasks' | 'remote-config'>('commands');
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [rcHistory, setRcHistory] = useState<any[]>([]);
+  const [rcTemplates, setRcTemplates] = useState<any[]>([]);
+  const [rcMode, setRcMode] = useState('baseline');
+  const [rcEnv, setRcEnv] = useState('dev'); // 'dev' | 'prod'
+  const [rcTemplateName, setRcTemplateName] = useState('');
+  const [rcTargetVersion, setRcTargetVersion] = useState('');
+  const [rcMinVersion, setRcMinVersion] = useState('');
+  const [rcLatestVersion, setRcLatestVersion] = useState('');
+  const [rcAndroidStoreUrl, setRcAndroidStoreUrl] = useState('https://play.google.com/store/apps/details?id=co.id.kibumn.tms.tenancy&hl=id');
+  const [rcIosStoreUrl, setRcIosStoreUrl] = useState('https://apps.apple.com/id/app/tenant-apps-kawasan-industri/id1671143383');
+  const [rcTitle, setRcTitle] = useState('');
+  const [rcMessage, setRcMessage] = useState('');
+  const [rcSaving, setRcSaving] = useState(false);
+  const [rcSyncing, setRcSyncing] = useState(false);
+  const [rcPublishing, setRcPublishing] = useState<number | null>(null);
+  const [rcResult, setRcResult] = useState('');
+  const [rcError, setRcError] = useState('');
+  const [rcReviewId, setRcReviewId] = useState<number | null>(null);
+  const [rcVersionErrors, setRcVersionErrors] = useState<Record<string, string>>({});
+  const [rcCustomVersionInput, setRcCustomVersionInput] = useState<Record<string, boolean>>({});
+  const rcSyncVersions = useRef({ min: '', latest: '' });
+
+  const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Format harus x.y.z (contoh: 2.0.4)');
+
+  const getVersionSuggestions = (current: string): { version: string; label: string }[] => {
+    const parts = current.split('.').map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) return [
+      { version: '2.0.4', label: 'patch' },
+      { version: '2.1.1', label: 'minor' },
+      { version: '3.1.1', label: 'major' },
+    ];
+    const [x, y, z] = parts;
+    return [
+      { version: `${x}.${y}.${z + 1}`, label: 'patch' },
+      { version: `${x}.${y + 1}.1`, label: 'minor' },
+      { version: `${x + 1}.1.1`, label: 'major' },
+    ];
+  };
+
+  const VersionSelect = ({ value, onChange, field, label, baseSync }: { value: string; onChange: (v: string) => void; field: string; label: string; baseSync?: string }) => {
+    const isCustom = rcCustomVersionInput[field];
+    const base = baseSync || '';
+    const suggestions = base ? getVersionSuggestions(base) : [];
+    const noSync = !base;
+
+    if (isCustom) {
+      return (
+        <div>
+          <label className="text-xs font-medium text-gray-500">{label}</label>
+          <input
+            value={value}
+            onChange={e => { onChange(e.target.value); validateField(field, e.target.value); }}
+            placeholder="x.y.z"
+            className={`w-full mt-1 px-3 py-2 text-sm border rounded-lg ${rcVersionErrors[field] ? 'border-red-400 bg-red-50' : ''}`}
+          />
+          <button onClick={() => { setRcCustomVersionInput(p => ({...p, [field]: false})); setRcVersionErrors(p => { const n = {...p}; delete n[field]; return n; }); }} className="text-xs text-blue-500 mt-1">← Kembali ke pilihan</button>
+          {rcVersionErrors[field] && <p className="text-xs text-red-500 mt-1">{rcVersionErrors[field]}</p>}
+        </div>
+      );
+    }
+
+    return (
+      <div>
+        <label className="text-xs font-medium text-gray-500">{label}</label>
+        <select
+          value={value || ''}
+          disabled={noSync}
+          onChange={e => {
+            if (e.target.value === '__custom__') {
+              setRcCustomVersionInput(p => ({...p, [field]: true}));
+            } else {
+              onChange(e.target.value);
+            }
+          }}
+          className={`w-full mt-1 px-3 py-2 text-sm border rounded-lg ${noSync ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : ''} ${rcVersionErrors[field] ? 'border-red-400 bg-red-50' : ''}`}
+        >
+          {noSync ? (
+            <option value="">🔄 Sync dulu</option>
+          ) : (
+            <>
+              <option value="" disabled>Pilih versi baru</option>
+              <option value={base} disabled>── {base} (saat ini)</option>
+              {suggestions.map(s => (
+                <option key={s.version} value={s.version}>{s.version} ({s.label})</option>
+              ))}
+              <option value="__custom__">✏️ Kustom...</option>
+            </>
+          )}
+        </select>
+        {rcVersionErrors[field] && <p className="text-xs text-red-500 mt-1">{rcVersionErrors[field]}</p>}
+      </div>
+    );
+  };
+
+  const validateField = (field: string, value: string) => {
+    if (!value) {
+      setRcVersionErrors(prev => { const n = {...prev}; delete n[field]; return n; });
+      return;
+    }
+    const result = versionSchema.safeParse(value);
+    setRcVersionErrors(prev => {
+      if (result.success) {
+        const n = {...prev}; delete n[field]; return n;
+      }
+      return {...prev, [field]: result.error.errors[0].message};
+    });
+  };
+
+  const validateVersions = () => {
+    const errs: Record<string, string> = {};
+    if (rcMode === 'optional' || rcMode === 'force') {
+      if (rcTargetVersion) {
+        const result = versionSchema.safeParse(rcTargetVersion);
+        if (!result.success) errs.target_version = result.error.errors[0].message;
+      }
+    }
+    if (rcMode === 'custom') {
+      [
+        { val: rcMinVersion, field: 'min_version' },
+        { val: rcLatestVersion, field: 'latest_version' },
+      ].forEach(({ val, field }) => {
+        if (val) {
+          const r = versionSchema.safeParse(val);
+          if (!r.success) errs[field] = r.error.errors[0].message;
+        }
+      });
+    }
+    setRcVersionErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+  const [rcReviewData, setRcReviewData] = useState<any>(null);
+  const [rcShowExtras, setRcShowExtras] = useState(false);
+  const [rcRefreshKey, setRcRefreshKey] = useState(0);
+  const [rcPublishResult, setRcPublishResult] = useState<{ id: number; stdout: string; stderr: string; success: boolean } | null>(null);
+  const [rcShowPublishLog, setRcShowPublishLog] = useState<number | null>(null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -90,6 +227,18 @@ export function ProjectDetail() {
         // Load task statuses
         taskStatusesApi.list().then(d => setTaskStatuses(d.statuses)).catch(() => {});
       }).catch(() => {});
+
+      // Load RC history & templates (only for flutter projects)
+      if (data.project.type === 'flutter') {
+        fetch('/api/remote-config-history/16')
+          .then(r => r.json())
+          .then(d => setRcHistory(d.history || []))
+          .catch(() => {});
+        fetch('/api/remote-config/templates/16')
+          .then(r => r.json())
+          .then(d => setRcTemplates(d.templates || []))
+          .catch(() => {});
+      }
     });
   }, [id]);
 
@@ -123,6 +272,35 @@ export function ProjectDetail() {
 
     return () => clearInterval(interval);
   }, [openLogs]);
+
+  // Auto-set default title/message based on RC mode
+  useEffect(() => {
+    if (rcMode === 'force') {
+      setRcTitle('Pembaruan wajib');
+      setRcMessage('Silakan perbarui aplikasi Anda sekarang untuk melanjutkan.');
+    } else {
+      setRcTitle('Pembaruan tersedia');
+      setRcMessage('Silakan perbarui aplikasi ke versi terbaru untuk pengalaman terbaik.');
+    }
+  }, [rcMode]);
+
+  // Auto-fill template name & target version from last template
+  useEffect(() => {
+    if (rcTemplates.length > 0) {
+      const suffix = rcEnv === 'dev' ? '_dev' : '';
+      const envTemplates = rcTemplates.filter(t => (t.suffix || '') === suffix);
+      if (envTemplates.length > 0) {
+        const last = envTemplates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+        const version = last.target_version || last.android_latest || '';
+        if (version && !rcTemplateName.startsWith('v')) {
+          setRcTemplateName(`v${version}`);
+        }
+        if (version && !rcTargetVersion) {
+          setRcTargetVersion(version);
+        }
+      }
+    }
+  }, [rcTemplates]);
 
   const handleStart = async (procId: number) => {
     const updated = await api.startProcess(procId);
@@ -250,6 +428,191 @@ export function ProjectDetail() {
     dragItem.current = null;
   };
 
+  const handleRcSave = async () => {
+    if (!validateVersions()) {
+      setRcSaving(false);
+      return;
+    }
+
+    // Cek apakah masih ada draft di env ini
+    const suffix = rcEnv === 'dev' ? '_dev' : '';
+    const existingDraft = rcTemplates.find(t => (t.suffix || '') === suffix && t.status === 'draft');
+    if (existingDraft) {
+      setRcError(`Masih ada draft "${existingDraft.name}" di env ${rcEnv === 'dev' ? 'Dev' : 'Prod'}. Publis atau hapus draft terlebih dahulu.`);
+      setRcSaving(false);
+      return;
+    }
+
+    // Wajib sync dulu kalo versi masih kosong
+    const hasVersion = rcMode === 'custom'
+      ? (rcMinVersion || rcLatestVersion)
+      : !!rcTargetVersion;
+    if (!hasVersion) {
+      setRcError(`Silakan sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} terlebih dahulu untuk mendapatkan versi terbaru.`);
+      setRcSaving(false);
+      return;
+    }
+
+    setRcSaving(true);
+    setRcError('');
+    setRcResult('');
+    try {
+      const body: any = {
+        project_id: 16,
+        name: rcTemplateName || `Template ${new Date().toLocaleString('id-ID')}`,
+        mode: rcMode,
+        suffix,
+      };
+      if (rcMode === 'optional' || rcMode === 'force') body.target_version = rcTargetVersion;
+      if (rcMode === 'custom') {
+        body.android_min = rcMinVersion;
+        body.android_latest = rcLatestVersion;
+        body.ios_min = rcMinVersion;
+        body.ios_latest = rcLatestVersion;
+      }
+      body.android_store_url = rcAndroidStoreUrl;
+      body.ios_store_url = rcIosStoreUrl;
+      body.update_title = rcTitle;
+      body.update_message = rcMessage;
+
+      const res = await fetch('/api/remote-config/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.template) {
+        setRcResult(`✅ Template "${data.template.name}" berhasil disimpan`);
+        // Reload templates
+        fetch('/api/remote-config/templates/16').then(r => r.json()).then(d => setRcTemplates(d.templates || [])).catch(() => {});
+        // Reset form name
+        setRcTemplateName('');
+      } else {
+        setRcError(data.error || 'Gagal menyimpan template');
+      }
+    } catch (err: any) {
+      setRcError(err.message);
+    } finally {
+      setRcSaving(false);
+    }
+  };
+
+  const handleRcSync = async () => {
+    setRcSyncing(true);
+    setRcError('');
+    setRcResult('');
+    try {
+      const res = await fetch(`/api/remote-config/sync/16?env=${rcEnv}`);
+      const data = await res.json();
+      if (data.sync) {
+        // Pick values based on current environment
+        const vals = rcEnv === 'dev' ? data.sync.dev : data.sync.prod;
+        const syncMin = vals.android_min || vals.ios_min || '';
+        const syncLatest = vals.android_latest || vals.ios_latest || '';
+        rcSyncVersions.current = { min: syncMin, latest: syncLatest };
+        setRcMinVersion(syncMin);
+        setRcLatestVersion(syncLatest);
+        if (vals.android_store_url) setRcAndroidStoreUrl(vals.android_store_url);
+        if (vals.ios_store_url) setRcIosStoreUrl(vals.ios_store_url);
+        setRcTitle(vals.update_title || '');
+        setRcMessage(vals.update_message || '');
+
+        // Set mode to 'custom' so all fields are visible after sync
+        setRcMode('custom');
+        // Fill target_version from version values
+        if (syncLatest) setRcTargetVersion(syncLatest);
+        // Auto-open Opsi tambahan modal
+        setTimeout(() => setRcShowExtras(true), 100);
+
+        const syncVersion = data.version || syncLatest || '';
+        setRcTemplateName(`v${syncVersion}`);
+        setRcResult(`✅ Berhasil sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} (versi ${data.version || '?'}). Form sudah terisi.`);
+      } else {
+        setRcError(data.error || 'Gagal sync');
+      }
+    } catch (err: any) {
+      setRcError(err.message);
+    } finally {
+      setRcSyncing(false);
+    }
+  };
+
+  const handleRcPublish = async (templateId: number) => {
+    setRcPublishing(templateId);
+    setRcPublishResult(null);
+    try {
+      const res = await fetch(`/api/remote-config/template/${templateId}/publish`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      // Build proper error message from response
+      let errMsg = '';
+      if (data.error) {
+        errMsg = data.error;
+      } else if (data.backendResult?.error) {
+        errMsg = 'Backend: ' + data.backendResult.error;
+      } else if (!data.success) {
+        errMsg = 'Gagal publish';
+      }
+      setRcPublishResult({
+        id: templateId,
+        success: data.success === true,
+        stdout: JSON.stringify(data.config || {}, null, 2),
+        stderr: errMsg,
+        ...data,
+      });
+      // Reload templates & history
+      fetch('/api/remote-config/templates/16').then(r => r.json()).then(d => setRcTemplates(d.templates || [])).catch(() => {});
+      fetch('/api/remote-config-history/16').then(r => r.json()).then(d => setRcHistory(d.history || [])).catch(() => {});
+    } catch (err: any) {
+      setRcError(err.message);
+    } finally {
+      setRcPublishing(null);
+    }
+  };
+
+  const handleRcReview = async (templateId: number) => {
+    setRcReviewId(templateId);
+    setRcReviewData(null);
+    try {
+      const res = await fetch(`/api/remote-config/template/${templateId}`);
+      const data = await res.json();
+      if (data.template) {
+        const params = data.template.params_json ? JSON.parse(data.template.params_json) : {};
+        setRcReviewData({ ...data.template, parsedParams: params });
+      }
+    } catch (err: any) {
+      setRcError(err.message);
+      setRcReviewId(null);
+    }
+  };
+
+  const handleRcDelete = async (templateId: number) => {
+    if (!confirm('Hapus template ini?')) return;
+    try {
+      await fetch(`/api/remote-config/template/${templateId}`, { method: 'DELETE' });
+      fetch('/api/remote-config/templates/16').then(r => r.json()).then(d => setRcTemplates(d.templates || [])).catch(() => {});
+    } catch (err: any) {
+      setRcError(err.message);
+    }
+  };
+
+  const handleRcClone = async (template: any) => {
+    // Fill form with template values
+    setRcMode(template.mode);
+    setRcEnv(template.suffix === '_dev' ? 'dev' : 'prod');
+    setRcTemplateName(template.name + ' (copy)');
+    setRcTargetVersion(template.target_version || '');
+    const tMin = template.android_min || template.ios_min || '';
+    const tLatest = template.android_latest || template.ios_latest || '';
+    setRcMinVersion(tMin);
+    setRcLatestVersion(tLatest);
+    setRcAndroidStoreUrl(template.android_store_url || '');
+    setRcIosStoreUrl(template.ios_store_url || '');
+    setRcTitle(template.update_title || '');
+    setRcMessage(template.update_message || '');
+  };
+
   if (!project) return <div className="text-gray-400">Loading...</div>;
 
   return (
@@ -327,11 +690,35 @@ export function ProjectDetail() {
               <span className="ml-1 text-xs opacity-80">({projectTasks.length})</span>
             )}
           </button>
+          {project.type === 'flutter' && (
+            <button
+              onClick={() => setActiveTab('remote-config')}
+              className={`px-3 py-1 rounded text-sm font-medium transition ${
+                activeTab === 'remote-config'
+                  ? 'bg-emerald-500 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              ☁️ RC
+            </button>
+          )}
         </div>
       </div>
 
       {activeTab === 'commands' && (
         <>
+          {project.type === 'flutter' && (
+            <details className="group mb-6" open>
+              <summary className="flex items-center gap-2 text-sm font-semibold text-gray-600 cursor-pointer hover:text-gray-800 py-1.5 select-none">
+                <span className="transition-transform group-open:rotate-90 text-xs">▶</span>
+                📱 ADB Devices
+              </summary>
+              <div className="mt-2">
+                <AdbDevicePanel compact />
+              </div>
+            </details>
+          )}
+
           {/* Add command */}
           <Card className="mb-6">
             <CardContent className="p-4">
@@ -725,6 +1112,411 @@ export function ProjectDetail() {
             />
           )}
         </>
+      )}
+
+      {activeTab === 'remote-config' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-600">☁️ Remote Config</h3>
+            <button
+              onClick={() => window.open('/remote-config', '_blank')}
+              className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition"
+            >
+              🔄 Buka Halaman Penuh
+            </button>
+          </div>
+
+          {/* Form */}
+          <Card>
+            <div className="p-4 space-y-3">
+              <div>
+                <label className="text-xs font-medium text-gray-500 mb-1 block">Environment</label>
+                <div className="flex rounded-lg border overflow-hidden">
+                  <button
+                    onClick={() => setRcEnv('dev')}
+                    className={`flex-1 py-2 text-sm font-medium transition ${rcEnv === 'dev' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    🟡 Dev
+                  </button>
+                  <button
+                    onClick={() => setRcEnv('prod')}
+                    className={`flex-1 py-2 text-sm font-medium transition ${rcEnv === 'prod' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    🟢 Prod
+                  </button>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">
+                  {rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-gray-500">Nama Template</label>
+                  <input
+                    value={rcTemplateName}
+                    onChange={e => setRcTemplateName(e.target.value)}
+                    placeholder="v2.0.4 - Force Update"
+                    className="w-full mt-1 px-3 py-2 text-sm border rounded-lg"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-medium text-gray-500">Mode</label>
+                  <select
+                    value={rcMode}
+                    onChange={e => setRcMode(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 text-sm border rounded-lg bg-white"
+                  >
+                    <option value="baseline">📊 Baseline (tidak ada popup)</option>
+                    <option value="optional">🟢 Optional</option>
+                    <option value="force">🔴 Force</option>
+                    <option value="custom">✏️ Custom</option>
+                  </select>
+                </div>
+              </div>
+              {/* Target version (optional/force) */}
+              {(rcMode === 'optional' || rcMode === 'force') && (
+                <VersionSelect
+                  value={rcTargetVersion}
+                  onChange={setRcTargetVersion}
+                  field="target_version"
+                  baseSync={rcSyncVersions.current.latest || rcSyncVersions.current.min}
+                  label={rcMode === 'optional' ? 'Versi target latest' : 'Versi target minimum/latest'}
+                />
+              )}
+
+              {/* Custom versions */}
+              {rcMode === 'custom' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <VersionSelect value={rcMinVersion} onChange={setRcMinVersion} field="min_version" baseSync={rcSyncVersions.current.min} label="Min Version" />
+                  <VersionSelect value={rcLatestVersion} onChange={setRcLatestVersion} field="latest_version" baseSync={rcSyncVersions.current.latest} label="Latest Version" />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setRcShowExtras(true)}
+                className="w-full py-2 px-3 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 transition flex items-center justify-center gap-1"
+              >
+                📎 Opsi tambahan
+                {(rcAndroidStoreUrl || rcIosStoreUrl || rcTitle || rcMessage) && (
+                  <span className="text-emerald-600 font-bold ml-1">• terisi</span>
+                )}
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRcSync}
+                  disabled={rcSyncing}
+                  className="flex-1 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {rcSyncing ? '⏳ Mengsync...' : '🔄 Sync dari ' + (rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id')}
+                </button>
+                <button
+                  onClick={handleRcSave}
+                  disabled={rcSaving}
+                  className="flex-1 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                >
+                  {rcSaving ? '⏳ Menyimpan...' : '💾 Simpan Template'}
+                </button>
+              </div>
+              {rcError && <p className="text-xs text-red-600">{rcError}</p>}
+              {rcResult && (
+                <div className="bg-gray-900 text-green-400 rounded-lg p-3 text-xs font-mono max-h-20 overflow-y-auto whitespace-pre-wrap">
+                  {rcResult}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          {/* Template List */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📋 Template Tersimpan {rcEnv === 'dev' ? '🟡 Dev' : '🟢 Prod'} ({rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length})</h4>
+            {rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length === 0 ? (
+              <p className="text-xs text-gray-400">Belum ada template untuk {rcEnv === 'dev' ? 'Dev' : 'Prod'}. Isi form di atas lalu klik Simpan Template.</p>
+            ) : (
+              <div className="space-y-2">
+                {rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).map((t: any) => {
+                  const isPublishing = rcPublishing === t.id;
+                  const isPublished = t.status === 'published';
+                  let parsedParams: any = {};
+                  try { parsedParams = t.params_json ? JSON.parse(t.params_json) : {}; } catch {}
+
+                  return (
+                    <Card key={t.id}>
+                      <div className="p-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-gray-800 truncate">{t.name}</span>
+                              {isPublished ? (
+                                <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-medium">✅ Published</span>
+                              ) : (
+                                <span className="text-xs px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">📝 Draft</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5 text-xs text-gray-400">
+                              <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                                t.mode === 'force' ? 'bg-red-100 text-red-700' :
+                                t.mode === 'optional' ? 'bg-blue-100 text-blue-700' :
+                                t.mode === 'baseline' ? 'bg-gray-100 text-gray-700' :
+                                'bg-purple-100 text-purple-700'
+                              }`}>{t.mode}</span>
+                              {t.suffix && <span className="font-mono text-emerald-600">{t.suffix}</span>}
+                              <span>{new Date(t.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              onClick={() => handleRcReview(t.id)}
+                              className="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded hover:bg-gray-200 transition"
+                            >
+                              👁 Lihat
+                            </button>
+                            <button
+                              onClick={() => handleRcClone(t)}
+                              className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"
+                            >
+                              📋 Duplikat
+                            </button>
+                            {isPublished ? (
+                              <span className="text-xs px-2 py-1 text-gray-400" title={`Published ${t.published_at ? new Date(t.published_at).toLocaleString('id-ID') : ''}`}>
+                                ✅
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleRcPublish(t.id)}
+                                disabled={isPublishing}
+                                className="text-xs px-2 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-500 disabled:opacity-50 transition"
+                              >
+                                {isPublishing ? '⏳...' : '🚀 Publish'}
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleRcDelete(t.id)}
+                              className="text-xs px-2 py-1 text-red-500 hover:bg-red-50 rounded transition"
+                            >
+                              🗑
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Show publish result log */}
+                        {rcPublishResult && rcPublishResult.id === t.id && (
+                          <div className="mt-2">
+                            <div className="bg-gray-900 text-green-400 rounded p-2 text-xs font-mono max-h-32 overflow-y-auto whitespace-pre-wrap">
+                              {rcPublishResult.stdout || ''}
+                              {rcPublishResult.stderr && (
+                                <span className="text-red-400">{rcPublishResult.stderr}</span>
+                              )}
+                            </div>
+                            {rcPublishResult.success ? (
+                              <p className="text-xs text-emerald-600 mt-1">✅ Berhasil dipublish ke Firebase</p>
+                            ) : (
+                              <p className="text-xs text-red-600 mt-1">❌ Gagal: {rcPublishResult.stderr?.slice(0, 200)}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Opsi Tambahan Modal */}
+          {rcShowExtras && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setRcShowExtras(false)}>
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800">📎 Opsi Tambahan</h3>
+                  <button onClick={() => setRcShowExtras(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Android Store URL</label>
+                    <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcAndroidStoreUrl}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">iOS Store URL</label>
+                    <p className="w-full mt-1 px-3 py-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-lg break-all">{rcIosStoreUrl}</p>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Update Title</label>
+                    <textarea value={rcTitle} onChange={e => setRcTitle(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={2} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-500">Update Message</label>
+                    <textarea value={rcMessage} onChange={e => setRcMessage(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={3} />
+                  </div>
+                  <button
+                    onClick={() => setRcShowExtras(false)}
+                    className="w-full py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+        {/* Review Modal */}
+          {rcReviewId !== null && rcReviewData && (
+            <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setRcReviewId(null)}>
+              <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800">👁 Review Template</h3>
+                  <button onClick={() => setRcReviewId(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
+                </div>
+                <div className="p-4 space-y-3">
+                  <div>
+                    <span className="text-xs text-gray-400 block">Nama</span>
+                    <span className="text-sm font-medium text-gray-800">{rcReviewData.name}</span>
+                  </div>
+                  <div className="flex gap-4">
+                    <div>
+                      <span className="text-xs text-gray-400 block">Mode</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 inline-block ${
+                        rcReviewData.mode === 'force' ? 'bg-red-100 text-red-700' :
+                        rcReviewData.mode === 'optional' ? 'bg-blue-100 text-blue-700' :
+                        rcReviewData.mode === 'baseline' ? 'bg-gray-100 text-gray-700' :
+                        'bg-purple-100 text-purple-700'
+                      }`}>{rcReviewData.mode}</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-400 block">Suffix</span>
+                      <span className="text-sm font-mono mt-1 inline-block">{rcReviewData.suffix || <span className="text-gray-400">—</span>}</span>
+                    </div>
+                    <div>
+                      <span className="text-xs text-gray-400 block">Status</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium mt-1 inline-block ${
+                        rcReviewData.status === 'published' ? 'bg-emerald-100 text-emerald-700' : 'bg-yellow-100 text-yellow-700'
+                      }`}>{rcReviewData.status === 'published' ? '✅ Published' : '📝 Draft'}</span>
+                    </div>
+                  </div>
+
+                  <div className="border-t pt-3">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📄 Parameter</h4>
+                    <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                      {Object.entries(rcReviewData.parsedParams || {}).map(([key, val]: any) => (
+                        <div key={key} className="flex items-baseline gap-2 text-xs">
+                          <span className="text-gray-500 font-mono min-w-[100px]">{key}</span>
+                          <span className="text-gray-800 font-mono break-all">{String(val) || <span className="text-gray-400">—</span>}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {rcReviewData.target_version && (
+                    <div>
+                      <span className="text-xs text-gray-400 block">Target Version</span>
+                      <span className="text-sm font-mono">{rcReviewData.target_version}</span>
+                    </div>
+                  )}
+
+                  {(rcReviewData.android_min || rcReviewData.android_latest || rcReviewData.ios_min || rcReviewData.ios_latest) && (
+                    <div className="grid grid-cols-2 gap-3">
+                      {rcReviewData.android_min && <div><span className="text-xs text-gray-400 block">Android Min</span><span className="text-sm font-mono">{rcReviewData.android_min}</span></div>}
+                      {rcReviewData.android_latest && <div><span className="text-xs text-gray-400 block">Android Latest</span><span className="text-sm font-mono">{rcReviewData.android_latest}</span></div>}
+                      {rcReviewData.ios_min && <div><span className="text-xs text-gray-400 block">iOS Min</span><span className="text-sm font-mono">{rcReviewData.ios_min}</span></div>}
+                      {rcReviewData.ios_latest && <div><span className="text-xs text-gray-400 block">iOS Latest</span><span className="text-sm font-mono">{rcReviewData.ios_latest}</span></div>}
+                    </div>
+                  )}
+
+                  {(rcReviewData.android_store_url || rcReviewData.ios_store_url) && (
+                    <div className="space-y-1">
+                      {rcReviewData.android_store_url && <div><span className="text-xs text-gray-400 block">Android Store URL</span><span className="text-xs font-mono text-blue-600 break-all">{rcReviewData.android_store_url}</span></div>}
+                      {rcReviewData.ios_store_url && <div><span className="text-xs text-gray-400 block">iOS Store URL</span><span className="text-xs font-mono text-blue-600 break-all">{rcReviewData.ios_store_url}</span></div>}
+                    </div>
+                  )}
+
+                  {rcReviewData.update_title && <div><span className="text-xs text-gray-400 block">Update Title</span><span className="text-sm">{rcReviewData.update_title}</span></div>}
+                  {rcReviewData.update_message && <div><span className="text-xs text-gray-400 block">Update Message</span><span className="text-sm">{rcReviewData.update_message}</span></div>}
+
+                  <div className="border-t pt-3 flex gap-2">
+                    {rcReviewData.status !== 'published' && (
+                      <button
+                        onClick={() => { setRcReviewId(null); handleRcPublish(rcReviewData.id); }}
+                        className="flex-1 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition"
+                      >
+                        🚀 Publish ke Firebase
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { handleRcClone(rcReviewData); setRcReviewId(null); }}
+                      className="flex-1 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+                    >
+                      📋 Duplikat & Edit
+                    </button>
+                    <button
+                      onClick={() => setRcReviewId(null)}
+                      className="py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition px-4"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Riwayat */}
+          <div>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📜 Riwayat Publikasi</h4>
+            {rcHistory.length === 0 ? (
+              <p className="text-xs text-gray-400">Belum ada riwayat publikasi.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b text-left text-gray-400">
+                      <th className="py-1.5 pr-2">Waktu</th>
+                      <th className="py-1.5 pr-2">Mode</th>
+                      <th className="py-1.5 pr-2">Suffix</th>
+                      <th className="py-1.5 pr-2">Android</th>
+                      <th className="py-1.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rcHistory.slice(0, 10).map((h: any) => (
+                      <tr key={h.id} className="border-b border-gray-100">
+                        <td className="py-1.5 pr-2 font-mono whitespace-nowrap">
+                          {new Date(h.created_at).toLocaleString('id-ID', {
+                            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </td>
+                        <td className="py-1.5 pr-2">
+                          <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
+                            h.mode === 'force' ? 'bg-red-100 text-red-700' :
+                            h.mode === 'optional' ? 'bg-blue-100 text-blue-700' :
+                            h.mode === 'baseline' ? 'bg-gray-100 text-gray-700' :
+                            'bg-purple-100 text-purple-700'
+                          }`}>
+                            {h.mode}
+                          </span>
+                        </td>
+                        <td className="py-1.5 pr-2 font-mono">
+                          {h.suffix ? <span className="text-emerald-600">{h.suffix}</span> : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="py-1.5 pr-2 font-mono">
+                          {h.android_min || '?'}
+                          {h.android_latest && h.android_latest !== h.android_min && (
+                            <span className="text-gray-400"> → {h.android_latest}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5">
+                          {h.status === 'success' ? '✅' : '❌'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
     </div>

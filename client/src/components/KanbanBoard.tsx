@@ -199,14 +199,14 @@ const handleDrop = (e: React.DragEvent, targetStatus: string) => {
 
   return (
     <>
-      <div ref={scrollRef} onDragOver={handleContainerDragOver} className="flex flex-wrap gap-4 pb-4 min-h-[300px]">
+      <div ref={scrollRef} onDragOver={handleContainerDragOver} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-4 min-h-[300px]">
       {columns.map(col => (
         <div
           key={col.id}
           onDragOver={(e) => handleDragOver(e, statusKey(col.name))}
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, statusKey(col.name))}
-          className={`flex-shrink-0 w-80 rounded-xl border transition-all duration-200 ${
+          className={`rounded-xl border transition-all duration-200 ${
             dragOverCol === statusKey(col.name)
               ? 'border-emerald-500/60 bg-black shadow-lg shadow-emerald-500/5'
               : 'border-gray-700/60 bg-black'

@@ -19,6 +19,15 @@ module.exports = {
     useNullAsDefault: true,
   },
 
+  // Remote Config — backend API tujuan publish
+  remoteConfig: {
+    backendUrl: process.env.RC_BACKEND_URL || 'http://127.0.0.1:8003',
+    prodBackendUrl: process.env.RC_PROD_BACKEND_URL || 'https://kibumn.co.id',
+    devBackendUrl: process.env.RC_DEV_BACKEND_URL || 'http://127.0.0.1:8003',
+    apiKey: process.env.RC_API_KEY || 'REDACTED_API_KEY',
+    endpoint: '/api/remote-config',
+  },
+
   scanFolders: [],
 
   commands: {
