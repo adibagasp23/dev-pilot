@@ -74,6 +74,11 @@ export const api = {
   deleteProcess: (id: number) =>
     fetchJSON<{ ok: boolean }>(`/processes/${id}`, { method: 'DELETE' }),
 
+  cloneProcess: (id: number) =>
+    fetchJSON<Process>(`/processes/${id}/clone`, {
+      method: 'POST',
+    }),
+
   getFolders: () =>
     fetchJSON<{ folders: ScanFolder[] }>('/settings/folders'),
 
@@ -130,6 +135,9 @@ export const api = {
 
   getRunningProcesses: () =>
     fetchJSON<{ processes: (Process & { project_name: string; project_type: string })[] }>('/processes/running'),
+
+  getRecentProcesses: (type?: string) =>
+    fetchJSON<{ processes: (Process & { project_name: string; project_type: string })[] }>(`/processes/recent${type ? `?type=${type}` : ''}`),
 
   subscribeToLog: (id: number, onLine: (line: { s: string; t: string }) => void, onStatus: (status: string) => void, onInit: (lines: { s: string; t: string }[], status: string) => void) => {
     const es = new EventSource(`${BASE}/processes/${id}/log/stream`);

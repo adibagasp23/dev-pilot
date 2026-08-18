@@ -41,7 +41,7 @@ export function ProjectDetail() {
   const [rcHistory, setRcHistory] = useState<any[]>([]);
   const [rcTemplates, setRcTemplates] = useState<any[]>([]);
   const [rcMode, setRcMode] = useState('baseline');
-  const [rcEnv, setRcEnv] = useState('dev'); // 'dev' | 'prod'
+  const [rcEnv, setRcEnv] = useState('dev'); // 'dev' | 'dev-server' | 'prod'
   const [rcTemplateName, setRcTemplateName] = useState('');
   const [rcPlatform, setRcPlatform] = useState('both'); // 'android' | 'ios' | 'both'
   const [rcTargetVersion, setRcTargetVersion] = useState('');
@@ -60,30 +60,63 @@ export function ProjectDetail() {
   const [rcError, setRcError] = useState('');
   const [rcReviewId, setRcReviewId] = useState<number | null>(null);
   const [rcVersionErrors, setRcVersionErrors] = useState<Record<string, string>>({});
+
+  // Env config lookup — avoid repetitive conditionals
+  const envMeta = useCallback((env: string) => {
+    const map: Record<string, { label: string; shortLabel: string; url: string }> = {
+      'dev': { label: 'Dev', shortLabel: '🟡 Dev', url: 'localhost:8003' },
+      'dev-server': { label: 'Dev Server', shortLabel: '🟠 Dev Server', url: 'dev-v2.kibumn.co.id' },
+      'prod': { label: 'Prod', shortLabel: '🟢 Prod', url: 'kibumn.co.id' },
+    };
+    return map[env] || map['prod'];
+  }, []);
+
+  const compareVersions = (a: string, b: string): number => {
+    const pa = a.split('.').map(Number);
+    const pb = b.split('.').map(Number);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+      const va = pa[i] || 0;
+      const vb = pb[i] || 0;
+      if (va > vb) return 1;
+      if (va < vb) return -1;
+    }
+    return 0;
+  };
+
   const [rcCustomVersionInput, setRcCustomVersionInput] = useState<Record<string, boolean>>({});
   const [rcSyncData, setRcSyncData] = useState<{ android: { min: string; latest: string }; ios: { min: string; latest: string } }>({ android: { min: '', latest: '' }, ios: { min: '', latest: '' } });
 
   const versionSchema = z.string().regex(/^\d+\.\d+\.\d+$/, 'Format harus x.y.z (contoh: 2.0.4)');
 
-  const getVersionSuggestions = (current: string): { version: string; label: string }[] => {
+  // latest_version & target_version → patch aja, min_version → semua (minor/major = force)
+  const getVersionSuggestions = (current: string, field?: string): { version: string; label: string }[] => {
+    const onlyPatch = field === 'latest_version' || field === 'target_version';
+    const fallback = onlyPatch
+      ? [{ version: '2.0.5', label: 'patch' }]
+      : [
+          { version: '2.0.5', label: 'patch' },
+          { version: '2.1.0', label: 'minor' },
+          { version: '3.0.0', label: 'major' },
+        ];
     const parts = current.split('.').map(Number);
-    if (parts.length !== 3 || parts.some(isNaN)) return [
-      { version: '2.0.4', label: 'patch' },
-      { version: '2.1.1', label: 'minor' },
-      { version: '3.1.1', label: 'major' },
-    ];
+    if (parts.length !== 3 || parts.some(isNaN)) return fallback;
     const [x, y, z] = parts;
-    return [
+    const results = [
       { version: `${x}.${y}.${z + 1}`, label: 'patch' },
-      { version: `${x}.${y + 1}.1`, label: 'minor' },
-      { version: `${x + 1}.1.1`, label: 'major' },
     ];
+    if (!onlyPatch) {
+      results.push(
+        { version: `${x}.${y + 1}.1`, label: 'minor' },
+        { version: `${x + 1}.1.1`, label: 'major' },
+      );
+    }
+    return results;
   };
 
   const VersionSelect = ({ value, onChange, field, label, baseSync }: { value: string; onChange: (v: string) => void; field: string; label: string; baseSync?: string }) => {
     const isCustom = rcCustomVersionInput[field];
     const base = baseSync || '';
-    const suggestions = base ? getVersionSuggestions(base) : [];
+    const suggestions = base ? getVersionSuggestions(base, field) : [];
     const noSync = !base;
 
     if (isCustom) {
@@ -173,9 +206,8 @@ export function ProjectDetail() {
   };
   const [rcReviewData, setRcReviewData] = useState<any>(null);
 
-  const [rcRefreshKey, setRcRefreshKey] = useState(0);
   const [rcPublishResult, setRcPublishResult] = useState<{ id: number; stdout: string; stderr: string; success: boolean } | null>(null);
-  const [rcShowPublishLog, setRcShowPublishLog] = useState<number | null>(null);
+  const [rcEditingId, setRcEditingId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -276,8 +308,9 @@ export function ProjectDetail() {
     return () => clearInterval(interval);
   }, [openLogs]);
 
-  // Auto-set default title/message based on RC mode
+  // Auto-set default title/message based on RC mode (skip 'custom' — user fills manually)
   useEffect(() => {
+    if (rcMode === 'custom') return;
     if (rcMode === 'force') {
       setRcTitle('Pembaruan wajib');
       setRcMessage('Silakan perbarui aplikasi Anda sekarang untuk melanjutkan.');
@@ -290,8 +323,7 @@ export function ProjectDetail() {
   // Auto-fill template name & target version from last template
   useEffect(() => {
     if (rcTemplates.length > 0) {
-      const suffix = rcEnv === 'dev' ? '_dev' : '';
-      const envTemplates = rcTemplates.filter(t => (t.suffix || '') === suffix);
+      const envTemplates = rcTemplates.filter(t => t.env === rcEnv);
       if (envTemplates.length > 0) {
         const last = envTemplates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
         const version = last.target_version || last.android_latest || '';
@@ -303,7 +335,7 @@ export function ProjectDetail() {
         }
       }
     }
-  }, [rcTemplates]);
+  }, [rcTemplates, rcEnv, envMeta]);
 
   // Reset form when environment tab changes
   useEffect(() => {
@@ -322,14 +354,26 @@ export function ProjectDetail() {
     // Auto-fetch sync for before values on cards
     fetch(`/api/remote-config/sync/16?env=${rcEnv}`).then(r => r.json()).then(syncData => {
       if (syncData.sync) {
-        const vals = rcEnv === 'dev' ? syncData.sync.dev : syncData.sync.prod;
+        const vals = syncData.sync[rcEnv] || syncData.sync.dev || syncData.sync.prod;
         setRcSyncData({
           android: { min: vals.android_min || '', latest: vals.android_latest || '' },
           ios: { min: vals.ios_min || '', latest: vals.ios_latest || '' },
         });
       }
     }).catch(() => {});
-  }, [rcEnv]);
+  }, [rcEnv, envMeta]);
+
+  // Auto-fill latest version dari min version (Android & iOS)
+  useEffect(() => {
+    if (rcAndroidMinVersion && (!rcAndroidLatestVersion || compareVersions(rcAndroidMinVersion, rcAndroidLatestVersion) > 0)) {
+      setRcAndroidLatestVersion(rcAndroidMinVersion);
+    }
+  }, [rcAndroidMinVersion]);
+  useEffect(() => {
+    if (rcIosMinVersion && (!rcIosLatestVersion || compareVersions(rcIosMinVersion, rcIosLatestVersion) > 0)) {
+      setRcIosLatestVersion(rcIosMinVersion);
+    }
+  }, [rcIosMinVersion]);
 
   const handleStart = async (procId: number) => {
     const updated = await api.startProcess(procId);
@@ -396,6 +440,20 @@ export function ProjectDetail() {
     }
   };
 
+  const handleClone = async (procId: number) => {
+    try {
+      const proc = await api.cloneProcess(procId);
+      setProcesses((prev) => {
+        const next = [...prev, proc];
+        processesRef.current = next;
+        return next;
+      });
+      toast('Command cloned! 📑');
+    } catch (err: any) {
+      toast(err.message);
+    }
+  };
+
   const handleSavePort = async (procId: number) => {
     const val = editPort[procId];
     try {
@@ -457,19 +515,45 @@ export function ProjectDetail() {
     dragItem.current = null;
   };
 
+  const handleAndroidMinChange = (val: string) => {
+    setRcAndroidMinVersion(val);
+    if (val) {
+      setRcTitle('Pembaruan wajib');
+    } else {
+      setRcTitle('');
+    }
+  };
+  const handleAndroidLatestChange = (val: string) => {
+    setRcAndroidLatestVersion(val);
+    if (val) setRcTitle('Pembaruan tersedia');
+  };
+  const handleIosMinChange = (val: string) => {
+    setRcIosMinVersion(val);
+    if (val) {
+      setRcTitle('Pembaruan wajib');
+    } else {
+      setRcTitle('');
+    }
+  };
+  const handleIosLatestChange = (val: string) => {
+    setRcIosLatestVersion(val);
+    if (val) setRcTitle('Pembaruan tersedia');
+  };
+
   const handleRcSave = async () => {
     if (!validateVersions()) {
       setRcSaving(false);
       return;
     }
 
-    // Cek apakah masih ada draft di env ini
-    const suffix = rcEnv === 'dev' ? '_dev' : '';
-    const existingDraft = rcTemplates.find(t => (t.suffix || '') === suffix && t.status === 'draft');
-    if (existingDraft) {
-      setRcError(`Masih ada draft "${existingDraft.name}" di env ${rcEnv === 'dev' ? 'Dev' : 'Prod'}. Publis atau hapus draft terlebih dahulu.`);
-      setRcSaving(false);
-      return;
+    // Cek apakah masih ada draft di env ini (skip kalo lagi edit template yang sama)
+    if (!rcEditingId) {
+      const existingDraft = rcTemplates.find(t => t.env === rcEnv && t.status === 'draft');
+      if (existingDraft) {
+        setRcError(`Masih ada draft "${existingDraft.name}" di env ${envMeta(rcEnv).label}. Publis atau hapus draft terlebih dahulu.`);
+        setRcSaving(false);
+        return;
+      }
     }
 
     // Wajib sync dulu kalo versi masih kosong
@@ -477,7 +561,14 @@ export function ProjectDetail() {
       ? (rcAndroidMinVersion || rcAndroidLatestVersion || rcIosMinVersion || rcIosLatestVersion)
       : !!rcTargetVersion;
     if (!hasVersion) {
-      setRcError(`Silakan sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} terlebih dahulu untuk mendapatkan versi terbaru.`);
+      setRcError(`Silakan sync dari ${envMeta(rcEnv).url} terlebih dahulu untuk mendapatkan versi terbaru.`);
+      setRcSaving(false);
+      return;
+    }
+
+    // Update Message wajib diisi
+    if (!rcMessage.trim()) {
+      setRcError('Update Message wajib diisi — berikan informasi yang jelas untuk pengguna.');
       setRcSaving(false);
       return;
     }
@@ -490,7 +581,7 @@ export function ProjectDetail() {
         project_id: 16,
         name: rcTemplateName || `Template ${new Date().toLocaleString('id-ID')}`,
         mode: rcMode,
-        suffix,
+        env: rcEnv,
       };
       if (rcMode === 'optional' || rcMode === 'force') body.target_version = rcTargetVersion;
       if (rcMode === 'custom') {
@@ -513,28 +604,42 @@ export function ProjectDetail() {
       body.update_title = rcTitle;
       body.update_message = rcMessage;
 
-      const res = await fetch('/api/remote-config/templates', {
-        method: 'POST',
+      const isEditing = rcEditingId !== null;
+      const url = isEditing ? `/api/remote-config/template/${rcEditingId}` : '/api/remote-config/templates';
+      const res = await fetch(url, {
+        method: isEditing ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.template) {
-        setRcResult(`✅ Template "${data.template.name}" berhasil disimpan`);
+        setRcResult(isEditing ? `✅ Template "${data.template.name}" berhasil diperbarui` : `✅ Template "${data.template.name}" berhasil disimpan`);
         // Reload templates
         fetch('/api/remote-config/templates/16').then(r => r.json()).then(d => setRcTemplates(d.templates || [])).catch(() => {});
         // Auto-sync for before values on card
         fetch(`/api/remote-config/sync/16?env=${rcEnv}`).then(r => r.json()).then(syncData => {
           if (syncData.sync) {
-            const vals = rcEnv === 'dev' ? syncData.sync.dev : syncData.sync.prod;
+            const vals = syncData.sync[rcEnv] || syncData.sync.dev || syncData.sync.prod;
             setRcSyncData({
               android: { min: vals.android_min || '', latest: vals.android_latest || '' },
               ios: { min: vals.ios_min || '', latest: vals.ios_latest || '' },
             });
           }
         }).catch(() => {});
-        // Reset form name
+        // Reset form
         setRcTemplateName('');
+        setRcTargetVersion('');
+        setRcAndroidMinVersion('');
+        setRcAndroidLatestVersion('');
+        setRcIosMinVersion('');
+        setRcIosLatestVersion('');
+        setRcAndroidStoreUrl('https://play.google.com/store/apps/details?id=co.id.kibumn.tms.tenancy&hl=id');
+        setRcIosStoreUrl('https://apps.apple.com/id/app/tenant-apps-kawasan-industri/id1671143383');
+        setRcTitle('');
+        setRcMessage('');
+        setRcCustomVersionInput({});
+        setRcVersionErrors({});
+        setRcEditingId(null);
       } else {
         setRcError(data.error || 'Gagal menyimpan template');
       }
@@ -554,7 +659,7 @@ export function ProjectDetail() {
       const data = await res.json();
       if (data.sync) {
         // Pick values based on current environment
-        const vals = rcEnv === 'dev' ? data.sync.dev : data.sync.prod;
+        const vals = data.sync[rcEnv] || data.sync.dev || data.sync.prod;
         const syncAndroid = {
           min: vals.android_min || '',
           latest: vals.android_latest || '',
@@ -571,8 +676,8 @@ export function ProjectDetail() {
         setRcIosLatestVersion(syncIos.latest);
         if (vals.android_store_url) setRcAndroidStoreUrl(vals.android_store_url);
         if (vals.ios_store_url) setRcIosStoreUrl(vals.ios_store_url);
-        setRcTitle(vals.update_title || '');
-        setRcMessage(vals.update_message || '');
+        setRcTitle('');
+        setRcMessage('');
 
         // Set mode to 'custom' so all fields are visible after sync
         setRcMode('custom');
@@ -581,7 +686,7 @@ export function ProjectDetail() {
         // Auto-open Opsi tambahan modal
         const syncVersion = data.version || curSync.latest || '';
         setRcTemplateName(`v${syncVersion}`);
-        setRcResult(`✅ Berhasil sync dari ${rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'} (versi ${data.version || '?'}). Form sudah terisi.`);
+        setRcResult(`✅ Berhasil sync dari ${envMeta(rcEnv).url} (versi ${data.version || '?'}). Form sudah terisi.`);
       } else {
         setRcError(data.error || 'Gagal sync');
       }
@@ -638,8 +743,7 @@ export function ProjectDetail() {
       const syncData = await syncRes.json().catch(() => ({ sync: {} }));
       if (data.template) {
         const params = data.template.params_json ? JSON.parse(data.template.params_json) : {};
-        const suffix = data.template.suffix || '';
-        const env = suffix === '_dev' ? 'dev' : 'prod';
+        const env = data.template.env || 'prod';
         // Use sync data as before values (ground truth from Laravel backend)
         const envSync = syncData.sync?.[env] || {};
         const beforeConfig = {
@@ -669,7 +773,7 @@ export function ProjectDetail() {
   const handleRcClone = async (template: any) => {
     // Fill form with template values
     setRcMode(template.mode);
-    setRcEnv(template.suffix === '_dev' ? 'dev' : 'prod');
+    setRcEnv(template.env || 'prod');
     setRcTemplateName(template.name + ' (copy)');
     setRcTargetVersion(template.target_version || '');
     setRcPlatform(template.platform || 'both');
@@ -681,6 +785,27 @@ export function ProjectDetail() {
     setRcIosStoreUrl(template.ios_store_url || '');
     setRcTitle(template.update_title || '');
     setRcMessage(template.update_message || '');
+  };
+
+  const handleRcEdit = async (template: any) => {
+    // Scroll ke form
+    document.getElementById('rc-form')?.scrollIntoView({ behavior: 'smooth' });
+    // Isi form dengan data template
+    setRcEditingId(template.id);
+    setRcMode(template.mode);
+    setRcTemplateName(template.name || '');
+    setRcTargetVersion(template.target_version || '');
+    setRcPlatform(template.platform || 'both');
+    setRcAndroidMinVersion(template.android_min || '');
+    setRcAndroidLatestVersion(template.android_latest || '');
+    setRcIosMinVersion(template.ios_min || '');
+    setRcIosLatestVersion(template.ios_latest || '');
+    setRcAndroidStoreUrl(template.android_store_url || 'https://play.google.com/store/apps/details?id=co.id.kibumn.tms.tenancy&hl=id');
+    setRcIosStoreUrl(template.ios_store_url || 'https://apps.apple.com/id/app/tenant-apps-kawasan-industri/id1671143383');
+    setRcTitle(template.update_title || '');
+    setRcMessage(template.update_message || '');
+    setRcError('');
+    setRcResult('');
   };
 
   if (!project) return <div className="text-gray-400">Loading...</div>;
@@ -790,7 +915,7 @@ export function ProjectDetail() {
           )}
 
           {/* Add command */}
-          <Card className="mb-6">
+          <Card id="rc-form" className="mb-6">
             <CardContent className="p-4">
               <h3 className="font-semibold text-gray-700 mb-3">Tambah Command Baru</h3>
               <div className="flex gap-2">
@@ -1040,6 +1165,13 @@ export function ProjectDetail() {
                       >
                         📋
                       </button>
+                      <button
+                        onClick={() => handleClone(proc.id)}
+                        className="text-xs text-gray-400 hover:text-emerald-500 px-1 transition"
+                        title="Clone command (duplikat untuk device lain)"
+                      >
+                        📑
+                      </button>
                     </div>
                   </div>
 
@@ -1055,14 +1187,51 @@ export function ProjectDetail() {
                           navigator.clipboard.writeText(logs[proc.id] || '');
                           toast('Full log copied!');
                         }}
-                        onCopyVisible={() => {
-                          navigator.clipboard.writeText(logs[proc.id] || '');
-                          toast('Log copied!');
-                        }}
+
                         onClear={() => {
                           setLogs((prev) => ({ ...prev, [proc.id]: '' }));
                           api.clearLogs(proc.id).catch(() => {});
                           toast('Terminal cleared!');
+                        }}
+                        onOpenDevTools={async (pid) => {
+                          // Step 1: Send 'v' ke Flutter process untuk trigger DevTools URL
+                          try {
+                            await api.sendInput(pid, 'v');
+                          } catch {}
+                          // Step 2: Poll log setiap 1 detik hingga maks 10 detik
+                          const timeout = 10000;
+                          const interval = 1000;
+                          let waited = 0;
+                          let foundUrl = null;
+                          while (waited < timeout) {
+                            await new Promise(r => setTimeout(r, interval));
+                            waited += interval;
+                            try {
+                              const logData = await api.getLogs(pid);
+                              const logText = logData.lines.map(l => l.t).join('');
+                              // Update local logs state biar terminal di UI ke-refresh
+                              setLogs((prev) => ({ ...prev, [pid]: logText || 'Waiting for output...' }));
+                              // Cari DevTools URL (format Flutter: http://.../devtools/?uri=ws:...)
+                              const devToolsMatch = logText.match(/https?:\/\/[^\s]+\/devtools\/\?uri=ws:[^\s]+/);
+                              if (devToolsMatch) {
+                                foundUrl = devToolsMatch[0];
+                                break;
+                              }
+                              // Fallback: cari VM Service / Observatory URL
+                              const vmMatch = logText.match(/https?:\/\/127\.0\.0\.1:\d+\/[^\s/]+\//);
+                              if (vmMatch) {
+                                foundUrl = vmMatch[0];
+                                break;
+                              }
+                            } catch {}
+                          }
+                          if (foundUrl) {
+                            // Flutter sudah membuka browser sendiri saat menerima 'v'.
+                            // Jadi tidak perlu window.open() lagi — cukup toast sebagai feedback.
+                            toast('🔧 DevTools terbuka di browser...');
+                          } else {
+                            toast('⚠️ DevTools URL belum muncul. Coba lagi nanti setelah Flutter selesai build.');
+                          }
                         }}
                       />
                     </div>
@@ -1188,12 +1357,21 @@ export function ProjectDetail() {
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-600">☁️ Remote Config</h3>
-            <button
-              onClick={() => window.open('/remote-config', '_blank')}
-              className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition"
-            >
-              🔄 Buka Halaman Penuh
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleRcSync}
+                disabled={rcSyncing}
+                className="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {rcSyncing ? '⏳ Mengsync...' : '🔄 Sync dari ' + envMeta(rcEnv).url}
+              </button>
+              <button
+                onClick={() => window.open('/remote-config', '_blank')}
+                className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-500 transition"
+              >
+                🔄 Buka Halaman Penuh
+              </button>
+            </div>
           </div>
 
           {/* Form */}
@@ -1209,6 +1387,12 @@ export function ProjectDetail() {
                     🟡 Dev
                   </button>
                   <button
+                    onClick={() => setRcEnv('dev-server')}
+                    className={`flex-1 py-2 text-sm font-medium transition ${rcEnv === 'dev-server' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                  >
+                    🟠 Dev Server
+                  </button>
+                  <button
                     onClick={() => setRcEnv('prod')}
                     className={`flex-1 py-2 text-sm font-medium transition ${rcEnv === 'prod' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                   >
@@ -1216,7 +1400,7 @@ export function ProjectDetail() {
                   </button>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">
-                  {rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id'}
+                  {envMeta(rcEnv).url}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -1244,7 +1428,7 @@ export function ProjectDetail() {
                         <option value="" disabled>Pilih versi template</option>
                         {(() => {
                           const base = rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.latest || rcSyncData[rcPlatform === 'both' ? 'android' : rcPlatform as 'android' | 'ios']?.min || '';
-                          const suggestions = getVersionSuggestions(base);
+                          const suggestions = getVersionSuggestions(base, 'target_version');
                           return (<>
                             <option value={base} disabled>── v{base} (saat ini)</option>
                             {suggestions.map(s => (
@@ -1312,7 +1496,7 @@ export function ProjectDetail() {
               {(rcMode === 'optional' || rcMode === 'force') && (
                 <VersionSelect
                   value={rcTargetVersion}
-                  onChange={setRcTargetVersion}
+                  onChange={(val: string) => { setRcTargetVersion(val); if (val) setRcTitle('Pembaruan wajib'); else setRcTitle(''); }}
                   field="target_version"
                   baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).latest || (rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).min}
                   label={rcMode === 'optional' ? 'Versi target latest' : 'Versi target minimum/latest'}
@@ -1324,20 +1508,20 @@ export function ProjectDetail() {
                 <>
                   <div className="text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">🤖 Android</div>
                   <div className="grid grid-cols-2 gap-3">
-                    <VersionSelect value={rcAndroidMinVersion} onChange={setRcAndroidMinVersion} field="min_version" baseSync={rcSyncData.android.min} label="Min Version" />
-                    <VersionSelect value={rcAndroidLatestVersion} onChange={setRcAndroidLatestVersion} field="latest_version" baseSync={rcSyncData.android.latest} label="Latest Version" />
+                    <VersionSelect value={rcAndroidMinVersion} onChange={handleAndroidMinChange} field="min_version" baseSync={rcSyncData.android.min} label="Min Version" />
+                    <VersionSelect value={rcAndroidLatestVersion} onChange={handleAndroidLatestChange} field="latest_version" baseSync={rcSyncData.android.latest} label="Latest Version" />
                   </div>
                   <div className="text-xs font-semibold text-gray-500 uppercase mt-2 mb-1">📱 iOS</div>
                   <div className="grid grid-cols-2 gap-3">
-                    <VersionSelect value={rcIosMinVersion} onChange={setRcIosMinVersion} field="min_version" baseSync={rcSyncData.ios.min} label="Min Version" />
-                    <VersionSelect value={rcIosLatestVersion} onChange={setRcIosLatestVersion} field="latest_version" baseSync={rcSyncData.ios.latest} label="Latest Version" />
+                    <VersionSelect value={rcIosMinVersion} onChange={handleIosMinChange} field="min_version" baseSync={rcSyncData.ios.min} label="Min Version" />
+                    <VersionSelect value={rcIosLatestVersion} onChange={handleIosLatestChange} field="latest_version" baseSync={rcSyncData.ios.latest} label="Latest Version" />
                   </div>
                 </>
               )}
               {rcMode === 'custom' && rcPlatform !== 'both' && (
                 <div className="grid grid-cols-2 gap-3">
-                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidMinVersion : rcIosMinVersion} onChange={rcPlatform === 'android' ? setRcAndroidMinVersion : setRcIosMinVersion} field="min_version" baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).min} label="Min Version" />
-                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidLatestVersion : rcIosLatestVersion} onChange={rcPlatform === 'android' ? setRcAndroidLatestVersion : setRcIosLatestVersion} field="latest_version" baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).latest} label="Latest Version" />
+                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidMinVersion : rcIosMinVersion} onChange={rcPlatform === 'android' ? handleAndroidMinChange : handleIosMinChange} field="min_version" baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).min} label="Min Version" />
+                  <VersionSelect value={rcPlatform === 'android' ? rcAndroidLatestVersion : rcIosLatestVersion} onChange={rcPlatform === 'android' ? handleAndroidLatestChange : handleIosLatestChange} field="latest_version" baseSync={(rcSyncData[rcPlatform as keyof typeof rcSyncData] || rcSyncData.android).latest} label="Latest Version" />
                 </div>
               )}
 
@@ -1361,26 +1545,43 @@ export function ProjectDetail() {
                     <textarea value={rcTitle} onChange={e => setRcTitle(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={2} placeholder="Pembaruan tersedia" />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-500">Update Message</label>
-                    <textarea value={rcMessage} onChange={e => setRcMessage(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={3} placeholder="Silakan perbarui aplikasi ke versi terbaru untuk pengalaman terbaik." />
+                    <label className="text-xs font-medium text-gray-500">Update Message <span className="text-red-500">*</span></label>
+                    <textarea value={rcMessage} onChange={e => setRcMessage(e.target.value)} className="w-full mt-1 px-3 py-2 text-sm border rounded-lg" rows={3} required placeholder="Jelaskan perubahan di versi ini, misal: Perbaikan bug notifikasi, penambahan fitur laporan, dan peningkatan performa." />
                   </div>
                 </div>
               </div>
 
               <div className="flex gap-2">
-                <button
-                  onClick={handleRcSync}
-                  disabled={rcSyncing}
-                  className="flex-1 py-2 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed transition"
-                >
-                  {rcSyncing ? '⏳ Mengsync...' : '🔄 Sync dari ' + (rcEnv === 'dev' ? 'localhost:8003' : 'kibumn.co.id')}
-                </button>
+                {rcEditingId && (
+                  <button
+                    onClick={() => {
+                      setRcEditingId(null);
+                      setRcTemplateName('');
+                      setRcTargetVersion('');
+                      setRcAndroidMinVersion('');
+                      setRcAndroidLatestVersion('');
+                      setRcIosMinVersion('');
+                      setRcIosLatestVersion('');
+                      setRcAndroidStoreUrl('https://play.google.com/store/apps/details?id=co.id.kibumn.tms.tenancy&hl=id');
+                      setRcIosStoreUrl('https://apps.apple.com/id/app/tenant-apps-kawasan-industri/id1671143383');
+                      setRcTitle('');
+                      setRcMessage('');
+                      setRcCustomVersionInput({});
+                      setRcVersionErrors({});
+                      setRcError('');
+                      setRcResult('');
+                    }}
+                    className="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
+                  >
+                    ✕ Batal
+                  </button>
+                )}
                 <button
                   onClick={handleRcSave}
                   disabled={rcSaving}
                   className="flex-1 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
                 >
-                  {rcSaving ? '⏳ Menyimpan...' : '💾 Simpan Template'}
+                  {rcSaving ? '⏳ Menyimpan...' : rcEditingId ? '✏️ Update Template' : '💾 Simpan Template'}
                 </button>
               </div>
               {rcError && <p className="text-xs text-red-600">{rcError}</p>}
@@ -1394,12 +1595,12 @@ export function ProjectDetail() {
 
           {/* Template List */}
           <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📋 Template Tersimpan {rcEnv === 'dev' ? '🟡 Dev' : '🟢 Prod'} ({rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length}){(() => { const env = rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')); const both = env.filter(t => t.platform === 'both').length; const android = env.filter(t => t.platform === 'android').length; const ios = env.filter(t => t.platform === 'ios').length; return ' — 🤖📱 ' + both + ' / 🤖 ' + android + ' / 📱 ' + ios; })()}</h4>
-            {rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).length === 0 ? (
-              <p className="text-xs text-gray-400">Belum ada template untuk {rcEnv === 'dev' ? 'Dev' : 'Prod'}. Isi form di atas lalu klik Simpan Template.</p>
+            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📋 Template Tersimpan {envMeta(rcEnv).shortLabel} ({rcTemplates.filter(t => t.status === 'draft' && t.env === rcEnv).length}){(() => { const env = rcTemplates.filter(t => t.status === 'draft' && t.env === rcEnv); const both = env.filter(t => t.platform === 'both').length; const android = env.filter(t => t.platform === 'android').length; const ios = env.filter(t => t.platform === 'ios').length; return ' — 🤖📱 ' + both + ' / 🤖 ' + android + ' / 📱 ' + ios; })()}</h4>
+            {rcTemplates.filter(t => t.status === 'draft' && t.env === rcEnv).length === 0 ? (
+              <p className="text-xs text-gray-400">Belum ada template draft untuk {envMeta(rcEnv).label}. Isi form di atas lalu klik Simpan Template.</p>
             ) : (
               <div className="space-y-2">
-                {rcTemplates.filter(t => (t.suffix || '') === (rcEnv === 'dev' ? '_dev' : '')).map((t: any) => {
+                {rcTemplates.filter(t => t.status === 'draft' && t.env === rcEnv).map((t: any) => {
                   const isPublishing = rcPublishing === t.id;
                   const isPublished = t.status === 'published';
                   let parsedParams: any = {};
@@ -1441,6 +1642,14 @@ export function ProjectDetail() {
                             >
                               👁 Lihat
                             </button>
+                            {!isPublished && (
+                              <button
+                                onClick={() => handleRcEdit(t)}
+                                className="text-xs px-2 py-1 bg-amber-50 text-amber-600 rounded hover:bg-amber-100 transition"
+                              >
+                                ✏️ Edit
+                              </button>
+                            )}
                             <button
                               onClick={() => handleRcClone(t)}
                               className="text-xs px-2 py-1 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 transition"
@@ -1476,12 +1685,12 @@ export function ProjectDetail() {
                           const p = t.platform || parsedParams.platform || 'both';
                           const changes: { label: string; before: string; after: string }[] = [];
                           if (p === 'both' || p === 'android') {
-                            if (t.android_min && t.android_min !== sd.android.min) changes.push({ label: 'A Min', before: sd.android.min || '—', after: t.android_min });
-                            if (t.android_latest && t.android_latest !== sd.android.latest) changes.push({ label: 'A Lts', before: sd.android.latest || '—', after: t.android_latest });
+                            if (t.android_min && t.android_min !== sd.android.min) changes.push({ label: 'Android Min', before: sd.android.min || '—', after: t.android_min });
+                            if (t.android_latest && t.android_latest !== sd.android.latest) changes.push({ label: 'Android Lts', before: sd.android.latest || '—', after: t.android_latest });
                           }
                           if (p === 'both' || p === 'ios') {
-                            if (t.ios_min && t.ios_min !== sd.ios.min) changes.push({ label: 'I Min', before: sd.ios.min || '—', after: t.ios_min });
-                            if (t.ios_latest && t.ios_latest !== sd.ios.latest) changes.push({ label: 'I Lts', before: sd.ios.latest || '—', after: t.ios_latest });
+                            if (t.ios_min && t.ios_min !== sd.ios.min) changes.push({ label: 'iOS Min', before: sd.ios.min || '—', after: t.ios_min });
+                            if (t.ios_latest && t.ios_latest !== sd.ios.latest) changes.push({ label: 'iOS Lts', before: sd.ios.latest || '—', after: t.ios_latest });
                           }
                           if (changes.length === 0) return null;
                           return (
@@ -1524,12 +1733,12 @@ export function ProjectDetail() {
         {/* Review Modal */}
           {rcReviewId !== null && rcReviewData && (
             <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center" onClick={() => setRcReviewId(null)}>
-              <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-                <div className="p-4 border-b flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-800">👁 Review Template</h3>
+              <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+                <div className="p-6 border-b flex items-center justify-between">
+                  <h3 className="font-semibold text-gray-800 text-lg">👁 Review Template</h3>
                   <button onClick={() => setRcReviewId(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">✕</button>
                 </div>
-                <div className="p-4 space-y-3">
+                <div className="p-6 space-y-4">
                   <div>
                     <span className="text-xs text-gray-400 block">Nama</span>
                     <span className="text-sm font-medium text-gray-800">{rcReviewData.name}</span>
@@ -1552,12 +1761,12 @@ export function ProjectDetail() {
                     </div>
                   </div>
 
-                  <div className="border-t pt-3">
-                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📄 Parameter</h4>
-                    <div className="bg-gray-50 rounded-lg p-3 space-y-1.5">
+                  <div className="border-t pt-4">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">📄 Parameter</h4>
+                    <div className="bg-gray-50 rounded-xl p-4 space-y-2">
                       {Object.entries(rcReviewData.parsedParams || {}).map(([key, val]: any) => (
-                        <div key={key} className="flex items-baseline gap-2 text-xs">
-                          <span className="text-gray-500 font-mono min-w-[100px]">{key}</span>
+                        <div key={key} className="flex items-baseline gap-3 text-sm">
+                          <span className="text-gray-500 font-mono min-w-[120px]">{key}</span>
                           <span className="text-gray-800 font-mono break-all">{String(val) || <span className="text-gray-400">—</span>}</span>
                         </div>
                       ))}
@@ -1572,11 +1781,11 @@ export function ProjectDetail() {
                   )}
 
                   {(rcReviewData.android_min || rcReviewData.android_latest || rcReviewData.ios_min || rcReviewData.ios_latest) && (
-                    <div className="grid grid-cols-2 gap-3">
-                      {(rcReviewData.platform !== 'ios') && rcReviewData.android_min && <div><span className="text-xs text-gray-400 block">Android Min</span><span className="text-sm font-mono">{rcReviewData.android_min}</span></div>}
-                      {(rcReviewData.platform !== 'ios') && rcReviewData.android_latest && <div><span className="text-xs text-gray-400 block">Android Latest</span><span className="text-sm font-mono">{rcReviewData.android_latest}</span></div>}
-                      {(rcReviewData.platform !== 'android') && rcReviewData.ios_min && <div><span className="text-xs text-gray-400 block">iOS Min</span><span className="text-sm font-mono">{rcReviewData.ios_min}</span></div>}
-                      {(rcReviewData.platform !== 'android') && rcReviewData.ios_latest && <div><span className="text-xs text-gray-400 block">iOS Latest</span><span className="text-sm font-mono">{rcReviewData.ios_latest}</span></div>}
+                    <div className="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-4">
+                      {(rcReviewData.platform !== 'ios') && rcReviewData.android_min && <div className="bg-white rounded-lg p-3 border border-gray-100"><span className="text-xs text-gray-400 block mb-0.5">Android Min</span><span className="text-base font-mono font-semibold text-gray-800">{rcReviewData.android_min}</span></div>}
+                      {(rcReviewData.platform !== 'ios') && rcReviewData.android_latest && <div className="bg-white rounded-lg p-3 border border-gray-100"><span className="text-xs text-gray-400 block mb-0.5">Android Latest</span><span className="text-base font-mono font-semibold text-gray-800">{rcReviewData.android_latest}</span></div>}
+                      {(rcReviewData.platform !== 'android') && rcReviewData.ios_min && <div className="bg-white rounded-lg p-3 border border-gray-100"><span className="text-xs text-gray-400 block mb-0.5">iOS Min</span><span className="text-base font-mono font-semibold text-gray-800">{rcReviewData.ios_min}</span></div>}
+                      {(rcReviewData.platform !== 'android') && rcReviewData.ios_latest && <div className="bg-white rounded-lg p-3 border border-gray-100"><span className="text-xs text-gray-400 block mb-0.5">iOS Latest</span><span className="text-base font-mono font-semibold text-gray-800">{rcReviewData.ios_latest}</span></div>}
                     </div>
                   )}
 
@@ -1586,9 +1795,9 @@ export function ProjectDetail() {
                     if (!hasBefore) return null;
                     const platform = rcReviewData.platform || 'both';
                     return (
-                      <div className="border-t pt-1">
-                        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">🔄 Before → After</h4>
-                        <div className="bg-amber-50 rounded-lg p-3 text-xs space-y-1.5">
+                      <div className="border-t pt-4">
+                        <h4 className="text-xs font-semibold text-gray-500 uppercase mb-3">🔄 Before → After</h4>
+                        <div className="bg-amber-50 rounded-xl p-4 text-sm space-y-2">
                           {(platform === 'both' || platform === 'android') && (
                             <>
                               <div className="flex items-center gap-2">
@@ -1627,33 +1836,36 @@ export function ProjectDetail() {
                   })()}
 
                   {(rcReviewData.android_store_url || rcReviewData.ios_store_url) && (
-                    <div className="space-y-1">
-                      {rcReviewData.android_store_url && <div><span className="text-xs text-gray-400 block">Android Store URL</span><span className="text-xs font-mono text-blue-600 break-all">{rcReviewData.android_store_url}</span></div>}
-                      {rcReviewData.ios_store_url && <div><span className="text-xs text-gray-400 block">iOS Store URL</span><span className="text-xs font-mono text-blue-600 break-all">{rcReviewData.ios_store_url}</span></div>}
+                    <div className="border-t pt-4 space-y-1">
+                      <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📍 Store URLs</h4>
+                      {rcReviewData.android_store_url && <div className="p-2.5"><span className="text-xs text-gray-400 block mb-0.5">Android</span><span className="text-xs font-mono text-blue-600 break-all leading-relaxed">{rcReviewData.android_store_url}</span></div>}
+                      {rcReviewData.ios_store_url && <div className="p-2.5"><span className="text-xs text-gray-400 block mb-0.5">iOS</span><span className="text-xs font-mono text-blue-600 break-all leading-relaxed">{rcReviewData.ios_store_url}</span></div>}
                     </div>
                   )}
 
-                  {rcReviewData.update_title && <div><span className="text-xs text-gray-400 block">Update Title</span><span className="text-sm">{rcReviewData.update_title}</span></div>}
-                  {rcReviewData.update_message && <div><span className="text-xs text-gray-400 block">Update Message</span><span className="text-sm">{rcReviewData.update_message}</span></div>}
+                  <div className="border-t pt-4 space-y-3">
+                    {rcReviewData.update_title && <div className="bg-gray-50 rounded-lg p-3"><span className="text-xs text-gray-400 block mb-1">Update Title</span><span className="text-sm font-medium">{rcReviewData.update_title}</span></div>}
+                    {rcReviewData.update_message && <div className="bg-gray-50 rounded-lg p-3"><span className="text-xs text-gray-400 block mb-1">Update Message</span><span className="text-sm">{rcReviewData.update_message}</span></div>}
+                  </div>
 
-                  <div className="border-t pt-3 flex gap-2">
+                  <div className="border-t pt-4 flex gap-3">
                     {rcReviewData.status !== 'published' && (
                       <button
                         onClick={() => { setRcReviewId(null); handleRcPublish(rcReviewData.id); }}
-                        className="flex-1 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition"
+                        className="flex-1 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 transition"
                       >
                         🚀 Publish ke Firebase
                       </button>
                     )}
                     <button
                       onClick={() => { handleRcClone(rcReviewData); setRcReviewId(null); }}
-                      className="flex-1 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
+                      className="flex-1 py-2.5 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition"
                     >
                       📋 Duplikat & Edit
                     </button>
                     <button
                       onClick={() => setRcReviewId(null)}
-                      className="py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition px-4"
+                      className="py-2.5 px-5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition"
                     >
                       Tutup
                     </button>
@@ -1665,27 +1877,36 @@ export function ProjectDetail() {
 
           {/* Riwayat */}
           <div>
-            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📜 Riwayat Publikasi</h4>
-            {rcHistory.length === 0 ? (
-              <p className="text-xs text-gray-400">Belum ada riwayat publikasi.</p>
-            ) : (
+            <h4 className="text-xs font-semibold text-gray-500 uppercase mb-2">📜 Riwayat Publikasi {envMeta(rcEnv).shortLabel}</h4>
+            {(() => {
+              const filteredHistory = rcHistory.filter(h => (h.env || 'prod') === rcEnv);
+              if (filteredHistory.length === 0) {
+                return <p className="text-xs text-gray-400">Belum ada riwayat publikasi untuk {envMeta(rcEnv).label}.</p>;
+              }
+              return (
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="border-b text-left text-gray-400">
                       <th className="py-1.5 pr-2">Waktu</th>
+                      <th className="py-1.5 pr-2">Template</th>
                       <th className="py-1.5 pr-2">Mode</th>
                       <th className="py-1.5 pr-2">Android</th>
+                      <th className="py-1.5 pr-2">iOS</th>
+                      <th className="py-1.5 pr-2">Before</th>
                       <th className="py-1.5">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rcHistory.slice(0, 10).map((h: any) => (
+                    {filteredHistory.slice(0, 10).map((h: any) => (
                       <tr key={h.id} className="border-b border-gray-100">
                         <td className="py-1.5 pr-2 font-mono whitespace-nowrap">
                           {new Date(h.created_at).toLocaleString('id-ID', {
                             day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
                           })}
+                        </td>
+                        <td className="py-1.5 pr-2 font-mono text-gray-600">
+                          {h.template_name || '-'}
                         </td>
                         <td className="py-1.5 pr-2">
                           <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
@@ -1703,6 +1924,23 @@ export function ProjectDetail() {
                             <span className="text-gray-400"> → {h.android_latest}</span>
                           )}
                         </td>
+                        <td className="py-1.5 pr-2 font-mono">
+                          {h.ios_min || '?'}
+                          {h.ios_latest && h.ios_latest !== h.ios_min && (
+                            <span className="text-gray-400"> → {h.ios_latest}</span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-2 font-mono text-gray-400">
+                          {(() => {
+                            const bAnd = h.before_android_min || h.before_android_latest;
+                            const bIos = h.before_ios_min || h.before_ios_latest;
+                            if (!bAnd && !bIos) return <span className="text-gray-300">—</span>;
+                            const parts = [];
+                            if (bAnd) parts.push(<span key="a"><span className="text-gray-400">A:</span> <span className="text-gray-500">{bAnd}</span></span>);
+                            if (bIos) parts.push(<span key="i" className="ml-1"><span className="text-gray-400">I:</span> <span className="text-gray-500">{bIos}</span></span>);
+                            return <span>{parts}</span>;
+                          })()}
+                        </td>
                         <td className="py-1.5">
                           {h.status === 'success' ? '✅' : '❌'}
                         </td>
@@ -1711,7 +1949,7 @@ export function ProjectDetail() {
                   </tbody>
                 </table>
               </div>
-            )}
+            );})()}
           </div>
         </div>
       )}

@@ -1,6 +1,22 @@
 // routes/api.js — JSON API for React frontend
 const express = require('express');
 const router = express.Router();
+const fs = require('fs');
+const path = require('path');
+
+// DEBUG: test endpoint
+router.get('/adb-scan-test', async (req, res) => {
+  const { execSync } = require('child_process');
+  try {
+    const test1 = execSync('echo hello', { encoding: 'utf8' });
+    const test2 = execSync('which ping', { encoding: 'utf8' });
+    const test3 = execSync('/bin/bash /Users/adibagaspratama/process-manager/adb-scan.sh 10.88.6.', { encoding: 'utf8', timeout: 60000 });
+    const lines = test3.trim().split('\n').filter(Boolean);
+    res.json({ test1: test1.trim(), test2: test2.trim(), hosts: lines.length, first5: lines.slice(0, 5) });
+  } catch(e) {
+    res.json({ error: e.message, stderr: (e.stderr || '').toString().substring(0, 200) });
+  }
+});
 const { getDB } = require('../database/db');
 const { scanAllFolders, scanFolder } = require('../services/scanner');
 
@@ -21,8 +37,6 @@ function findAdb() {
 }
 const ADB = findAdb();
 const { startProcess, stopProcess, sendInput, getLogs, clearLogs, subscribeSSE, unsubscribeSSE, processLogs, runningProcesses } = require('../services/process-manager');
-const fs = require('fs');
-const path = require('path');
 const os = require('os');
 const mime = require('mime-types');
 const multer = require('multer');
@@ -222,6 +236,28 @@ router.put('/settings/app-types', async (req, res) => {
 });
 
 // Start process
+// Clone a process (duplicate command into a new process at end of list)
+router.post('/processes/:id/clone', async (req, res) => {
+  try {
+    const db = getDB();
+    const source = await db('processes').where('id', parseInt(req.params.id)).first();
+    if (!source) return res.status(404).json({ error: 'Process not found' });
+
+    const maxOrder = await db('processes').where('project_id', source.project_id).max('sort_order as max');
+    const [{ id }] = await db('processes').insert({
+      project_id: source.project_id,
+      label: `${source.label} (clone)`,
+      command: source.command,
+      port: source.port || null,
+      sort_order: (maxOrder[0]?.max || 0) + 1,
+    }).returning('id');
+    const proc = await db('processes').where('id', id).first();
+    res.json(proc);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/processes/:id/start', async (req, res) => {
   try {
     await startProcess(parseInt(req.params.id));
@@ -272,11 +308,11 @@ router.post('/processes', async (req, res) => {
   }
 
   const maxOrder = await db('processes').where('project_id', project_id).max('sort_order as max');
-  const result = await db('processes').insert({
+  const [{ id }] = await db('processes').insert({
     project_id, label, command, port: port || null,
     sort_order: (maxOrder[0]?.max || 0) + 1,
-  });
-  const proc = await db('processes').where('id', result[0]).first();
+  }).returning('id');
+  const proc = await db('processes').where('id', id).first();
   res.json(proc);
 });
 
@@ -368,6 +404,26 @@ router.get('/processes/running', async (req, res) => {
   res.json({ processes });
 });
 
+// Get recently stopped processes (history)
+router.get('/processes/recent', async (req, res) => {
+  const db = getDB();
+  const type = req.query.type; // optional filter: 'flutter', 'laravel', etc.
+  let query = db('processes')
+    .join('projects', 'processes.project_id', 'projects.id')
+    .whereNotNull('processes.stopped_at')
+    .select('processes.*', 'projects.name as project_name', 'projects.type as project_type');
+
+  if (type) {
+    query = query.where('projects.type', type);
+  }
+
+  const processes = await query
+    .orderBy('processes.stopped_at', 'desc')
+    .limit(50);
+
+  res.json({ processes });
+});
+
 // Update process
 router.put('/processes/:id', async (req, res) => {
   const db = getDB();
@@ -444,7 +500,7 @@ router.post('/create-project', async (req, res) => {
   const { name, type, path } = req.body;
   if (!name || !type) return res.status(400).json({ error: 'Name and type required' });
 
-  const [id] = await db('projects').insert({ name, type, path: path || '' });
+  const [{ id }] = await db('projects').insert({ name, type, path: path || '' }).returning('id');
   const project = await db('projects').where('id', id).first();
 
   // Add default templates for the type
@@ -546,6 +602,7 @@ router.get('/adb-devices', async (req, res) => {
 router.post('/adb-scan', async (req, res) => {
   const { execSync } = require('child_process');
   const os = require('os');
+  const net = require('net');
 
   try {
     // Dapetin IP lokal + subnet
@@ -562,7 +619,6 @@ router.post('/adb-scan', async (req, res) => {
     }
 
     if (!localIp) {
-      // fallback: pake hostname -I atau ipconfig
       try {
         localIp = execSync('ipconfig getifaddr en0', { encoding: 'utf8', timeout: 3000 }).trim();
       } catch {}
@@ -574,43 +630,46 @@ router.post('/adb-scan', async (req, res) => {
 
     const subnet = localIp.substring(0, localIp.lastIndexOf('.') + 1);
 
-    // Ping scan parallel
-    const tmpDir = os.tmpdir();
-    const pingFile = `${tmpDir}/adb_ping_${Date.now()}`;
-    const portFile = `${tmpDir}/adb_port_${Date.now()}`;
-
-    // Ping semua IP di subnet (parallel)
-    const pingScript = `
-for i in $(seq 1 254); do
-  (ping -c1 -W1 ${subnet}$i >/dev/null 2>&1 && echo $i >> ${pingFile}) &
-  if [ \$((i % 20)) -eq 0 ]; then wait; fi
-done
-wait
-`;
-    execSync(pingScript, { timeout: 15000, shell: '/bin/bash' });
-
-    // Baca hasil ping
-    let activeHosts = [];
+    // Ambil daftar IP dari ARP table (lebih cepet daripada ping sweep)
+    let arpIps = [];
     try {
-      const data = fs.readFileSync(pingFile, 'utf8').trim();
-      activeHosts = data.split('\n').filter(Boolean);
+      const arpOutput = execSync('arp -a -n 2>/dev/null || arp -a 2>/dev/null', { encoding: 'utf8', timeout: 5000 });
+      const arpRegex = new RegExp(subnet.replace(/\\./g, '\\.') + '(\\d+)', 'g');
+      let match;
+      while ((match = arpRegex.exec(arpOutput)) !== null) {
+        arpIps.push(subnet + match[1]);
+      }
     } catch {}
-    try { fs.unlinkSync(pingFile); } catch {}
 
-    if (activeHosts.length === 0) {
-      return res.json({ devices: [], hosts: 0 });
+    // Tambahin IP local juga
+    if (!arpIps.includes(localIp)) arpIps.push(localIp);
+
+    // Filter unique
+    arpIps = [...new Set(arpIps)];
+
+    // Ping sweep paralel dengan Node.js (quick check siapa yang hidup)
+    const { spawnSync } = require('child_process');
+    const activeHosts = [];
+
+    // Run shell script to ping scan (reliable)
+    const scanScript = __dirname + '/../adb-scan.sh';
+    try {
+      const output = require('child_process').execSync('/bin/bash ' + scanScript + ' ' + subnet, { encoding: 'utf8', timeout: 60000 });
+      const lines = output.trim().split('\n');
+      for (const ip of lines) {
+        if (ip && !activeHosts.includes(ip)) activeHosts.push(ip);
+      }
+    } catch (e) {
+      // ignore
     }
 
-    // Cek port 5555 parallel via node
-    const net = require('net');
+    // Cek port 5555 di host yang aktif
     const adbHosts = [];
-
-    await Promise.all(activeHosts.map(async (num) => {
-      const ip = subnet + num;
+    for (const ip of activeHosts) {
       try {
         await new Promise((resolve, reject) => {
           const sock = new net.Socket();
-          sock.setTimeout(1000);
+          sock.setTimeout(2000);
           sock.on('connect', () => { sock.destroy(); resolve(undefined); });
           sock.on('error', reject);
           sock.on('timeout', reject);
@@ -618,17 +677,16 @@ wait
         });
         adbHosts.push(ip);
       } catch {}
-    }));
-
-    try { fs.unlinkSync(portFile); } catch {}
+    }
 
     // Ambil hostname dari ARP
-    let arpOutput = '';
-    try { arpOutput = execSync('arp -a -n 2>/dev/null || arp -a 2>/dev/null', { encoding: 'utf8', timeout: 3000 }); } catch {}
+    let arpOutput2 = '';
+    try { arpOutput2 = execSync('arp -a -n 2>/dev/null || arp -a 2>/dev/null', { encoding: 'utf8', timeout: 3000 }); } catch {}
 
     const devices = adbHosts.map(ip => {
-      const match = arpOutput.match(new RegExp(ip.replace(/\./g, '\\.') + '.*'));
-      const hostname = match ? match[0].split(' ')[0].replace(/\(.*\)/, '').trim() : '—';
+      const escapedIp = ip.replace(/\\./g, '\\\\.');
+      const match = arpOutput2.match(new RegExp(escapedIp + '.*'));
+      const hostname = match ? match[0].split(' ')[0].replace(/\\(.*\\)/, '').trim() : '—';
       return { id: ip, status: 'discovered', hostname };
     });
 
@@ -661,6 +719,20 @@ router.post('/adb-disconnect-all', async (req, res) => {
   try {
     execSync(ADB + ' disconnect', { timeout: 5000 });
     res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// Enable ADB over TCP on device (USB → wireless)
+router.post('/adb-tcpip', async (req, res) => {
+  const { device } = req.body;
+  if (!device) return res.status(400).json({ error: 'Device ID required' });
+  const { execSync } = require('child_process');
+  try {
+    const result = execSync(ADB + ` -s ${device} tcpip 5555`, { encoding: 'utf8', timeout: 10000, shell: '/bin/bash' });
+    const ok = result.toLowerCase().includes('restart') || result.toLowerCase().includes('port');
+    res.json({ ok, output: result.trim() });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
@@ -799,7 +871,7 @@ router.post('/tasks', async (req, res) => {
       sort_order: (maxOrder[0]?.max || -1) + 1,
     };
     if (due_date !== undefined) insert.due_date = due_date || null;
-    const [id] = await db('tasks').insert(insert);
+    const [{ id }] = await db('tasks').insert(insert).returning('id');
     const task = await db('tasks').where('id', id).first();
     res.json(task);
   } catch (err) {
@@ -868,10 +940,10 @@ router.post('/task-statuses', async (req, res) => {
     const { name, sort_order } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
     const finalSortOrder = parseInt(sort_order, 10);
-    const [id] = await db('task_statuses').insert({
+    const [{ id }] = await db('task_statuses').insert({
       name: name.trim(),
       sort_order: isNaN(finalSortOrder) ? 0 : finalSortOrder,
-    });
+    }).returning('id');
     const status = await db('task_statuses').where('id', id).first();
     res.json({ status });
   } catch (e) {
@@ -980,13 +1052,13 @@ router.post('/media/upload', upload.single('file'), async (req, res) => {
 
     // Store relative path as filename
     const storedPath = subdir ? `${subdir}/${finalName}` : finalName;
-    const [id] = await db('media_items').insert({
+    const [{ id }] = await db('media_items').insert({
       filename: storedPath,
       original_name: finalName,
       mime_type: mimetype,
       size,
       project_id,
-    });
+    }).returning('id');
     const item = await db('media_items').where('id', id).first();
     // Clean up temp file if still exists (safety) — relevance for browser uploads
     try { if (fs.existsSync(tempPath) && !req.body.localPath) fs.unlinkSync(tempPath); } catch {}
@@ -1166,16 +1238,16 @@ router.get('/remote-config-history/:projectId', async (req, res) => {
 router.post('/remote-config-history', async (req, res) => {
   try {
     const db = getDB();
-    const { project_id, mode, suffix, android_min, android_latest, ios_min, ios_latest, status, error_message } = req.body;
+    const { project_id, mode, env, android_min, android_latest, ios_min, ios_latest, status, error_message } = req.body;
     if (!project_id || !mode) {
       return res.status(400).json({ error: 'project_id dan mode wajib diisi' });
     }
-    const [id] = await db('remote_config_history').insert({
-      project_id, mode, suffix: suffix || '',
+    const [{ id }] = await db('remote_config_history').insert({
+      project_id, mode, env: env || 'prod',
       android_min, android_latest, ios_min, ios_latest,
       status: status || 'success',
       error_message: error_message || null,
-    });
+    }).returning('id');
     res.json({ id });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1194,7 +1266,7 @@ router.get('/remote-config/sync/:projectId', async (req, res) => {
     const env = req.query.env || 'dev';
 
     // Pick the right backend based on environment
-    const backendUrl = env === 'dev' ? rcConfig.remoteConfig.devBackendUrl : rcConfig.remoteConfig.prodBackendUrl;
+    const backendUrl = env === 'dev' ? rcConfig.remoteConfig.devBackendUrl : env === 'dev-server' ? rcConfig.remoteConfig.devServerBackendUrl : rcConfig.remoteConfig.prodBackendUrl;
 
     const fetchBackend = async (url) => {
       const response = await fetch(`${url}${endpoint}`, {
@@ -1210,12 +1282,12 @@ router.get('/remote-config/sync/:projectId', async (req, res) => {
     try {
       data = await fetchBackend(backendUrl);
     } catch (fetchErr) {
-      const host = env === 'dev' ? 'localhost:8003' : 'kibumn.co.id';
+      const host = env === 'dev' ? 'localhost:8003' : env === 'dev-server' ? 'dev-v2.kibumn.co.id' : 'kibumn.co.id';
       return res.status(502).json({ error: `${fetchErr.message}`, unreachable: true });
     }
 
     if (!data) {
-      const host = env === 'dev' ? 'localhost:8003' : 'kibumn.co.id';
+      const host = env === 'dev' ? 'localhost:8003' : env === 'dev-server' ? 'dev-v2.kibumn.co.id' : 'kibumn.co.id';
       return res.status(502).json({ error: `Server ${host} tidak mengembalikan data`, unreachable: true });
     }
 
@@ -1232,23 +1304,25 @@ router.get('/remote-config/sync/:projectId', async (req, res) => {
       update_message: d?.update_message || d?.android_update_message || d?.ios_update_message || '',
     });
 
+    // Dev and Prod hit different backend URLs, so both use non-suffixed keys
     const extractDev = (d) => ({
-      android_min: d?.['android_minimum_version_dev'] || d?.minimum_version_dev || d?.android_minimum_version || d?.minimum_version || '',
-      android_latest: d?.['android_latest_version_dev'] || d?.latest_version_dev || d?.android_latest_version || d?.latest_version || '',
-      ios_min: d?.['ios_minimum_version_dev'] || d?.minimum_version_dev || d?.ios_minimum_version || d?.minimum_version || '',
-      ios_latest: d?.['ios_latest_version_dev'] || d?.latest_version_dev || d?.ios_latest_version || d?.latest_version || '',
-      android_store_url: d?.['android_store_url_dev'] || d?.android_store_url || '',
-      ios_store_url: d?.['ios_store_url_dev'] || d?.ios_store_url || '',
-      update_title: d?.['update_title_dev'] || d?.update_title || d?.android_update_title || d?.ios_update_title || '',
-      update_message: d?.['update_message_dev'] || d?.update_message || d?.android_update_message || d?.ios_update_message || '',
+      android_min: d?.android_minimum_version || d?.minimum_version || '',
+      android_latest: d?.android_latest_version || d?.latest_version || '',
+      ios_min: d?.ios_minimum_version || d?.minimum_version || '',
+      ios_latest: d?.ios_latest_version || d?.latest_version || '',
+      android_store_url: d?.android_store_url || '',
+      ios_store_url: d?.ios_store_url || '',
+      update_title: d?.update_title || d?.android_update_title || d?.ios_update_title || '',
+      update_message: d?.update_message || d?.android_update_message || d?.ios_update_message || '',
     });
 
     res.json({
       sync: {
         dev: extractDev(data),
+        ['dev-server']: extractDev(data),
         prod: extractProd(data),
       },
-      version: data?.latest_version || data?.android_latest_version || data?.latest_version_dev || data?.['android_latest_version_dev'] || null,
+      version: data?.android_latest_version || data?.latest_version || data?.ios_latest_version || null,
     });
   } catch (e) {
     res.status(500).json({ error: 'Gagal sync dari backend: ' + e.message });
@@ -1259,7 +1333,7 @@ router.post('/remote-config/templates', async (req, res) => {
   try {
     const db = getDB();
     const {
-      project_id, name, mode, suffix,
+      project_id, name, mode, env,
       target_version, android_min, android_latest,
       ios_min, ios_latest, android_store_url, ios_store_url,
       update_title, update_message, platform,
@@ -1269,10 +1343,11 @@ router.post('/remote-config/templates', async (req, res) => {
       return res.status(400).json({ error: 'project_id dan mode wajib diisi' });
     }
 
+    const envVal = env || 'prod';
+
     // Build params_json for review
     const params = {
       mode,
-      suffix: suffix || '',
     };
     if (mode === 'optional' || mode === 'force') params.target_version = target_version || '';
     if (mode === 'custom') {
@@ -1287,11 +1362,11 @@ router.post('/remote-config/templates', async (req, res) => {
     if (update_message) params.update_message = update_message;
     params.platform = platform || 'android';
 
-    const [id] = await db('remote_config_templates').insert({
+    const [{ id }] = await db('remote_config_templates').insert({
       project_id,
       name: name || `Template ${new Date().toLocaleString('id-ID')}`,
       mode,
-      suffix: suffix || '',
+      env: envVal,
       target_version: target_version || null,
       android_min: android_min || null,
       android_latest: android_latest || null,
@@ -1303,7 +1378,7 @@ router.post('/remote-config/templates', async (req, res) => {
       update_message: update_message || null,
       params_json: JSON.stringify(params),
       status: 'draft',
-    });
+    }).returning('id');
 
     const template = await db('remote_config_templates').where('id', id).first();
     res.json({ template });
@@ -1363,10 +1438,10 @@ router.put('/remote-config/template/:id', async (req, res) => {
   try {
     const db = getDB();
     const {
-      name, mode, suffix,
+      name, mode, env,
       target_version, android_min, android_latest,
       ios_min, ios_latest, android_store_url, ios_store_url,
-      update_title, update_message,
+      update_title, update_message, platform,
     } = req.body;
 
     const existing = await db('remote_config_templates').where('id', req.params.id).first();
@@ -1378,7 +1453,7 @@ router.put('/remote-config/template/:id', async (req, res) => {
     const updateData = { updated_at: db.fn.now() };
     if (name !== undefined) updateData.name = name;
     if (mode !== undefined) updateData.mode = mode;
-    if (suffix !== undefined) updateData.suffix = suffix;
+    if (env !== undefined) updateData.env = env;
     if (target_version !== undefined) updateData.target_version = target_version;
     if (android_min !== undefined) updateData.android_min = android_min;
     if (android_latest !== undefined) updateData.android_latest = android_latest;
@@ -1390,7 +1465,7 @@ router.put('/remote-config/template/:id', async (req, res) => {
     if (update_message !== undefined) updateData.update_message = update_message;
 
     // Rebuild params_json
-    const params = { mode: updateData.mode || existing.mode, suffix: updateData.suffix ?? existing.suffix };
+    const params = { mode: updateData.mode || existing.mode };
     const m = params.mode;
     const tv = updateData.target_version ?? existing.target_version;
     if (m === 'optional' || m === 'force') params.target_version = tv || '';
@@ -1408,6 +1483,11 @@ router.put('/remote-config/template/:id', async (req, res) => {
     if (ut) params.update_title = ut;
     const um = updateData.update_message ?? existing.update_message;
     if (um) params.update_message = um;
+    if (platform !== undefined) {
+      params.platform = platform;
+    } else {
+      try { const p = JSON.parse(existing.params_json || '{}'); params.platform = p.platform || 'both'; } catch { params.platform = 'both'; }
+    }
     updateData.params_json = JSON.stringify(params);
 
     await db('remote_config_templates').where('id', req.params.id).update(updateData);
@@ -1433,12 +1513,13 @@ router.delete('/remote-config/template/:id', async (req, res) => {
 
 // Build config JSON from template
 function buildConfigFromTemplate(t) {
-  const suffix = t.suffix || '';
   const platform = t.platform || 'both';
+  // NOTE: Suffix no longer used in config keys.
+  // Dev and Prod publish to different backend URLs (devBackendUrl vs prodBackendUrl).
+  // All keys are published WITHOUT suffix to their respective backend.
   const makeParam = (base, val) => {
-    const key = suffix ? `${base}${suffix}` : base;
     const pair = {};
-    pair[key] = val || '';
+    pair[base] = val || '';
     return pair;
   };
 
@@ -1456,11 +1537,7 @@ function buildConfigFromTemplate(t) {
     androidMin = androidLatest = iosMin = iosLatest = tv;
   }
 
-  // Unified keys — pakai nilai Android sebagai primary
-  Object.assign(config, makeParam('minimum_version', androidMin));
-  Object.assign(config, makeParam('latest_version', androidLatest));
-
-  // Platform-specific keys sesuai dropdown
+  // Platform-specific keys sesuai dropdown (no unified keys — Flutter app reads platform-specific keys)
   if (platform === 'android' || platform === 'both') {
     Object.assign(config, makeParam('android_minimum_version', androidMin));
     Object.assign(config, makeParam('android_latest_version', androidLatest));
@@ -1475,10 +1552,6 @@ function buildConfigFromTemplate(t) {
     Object.assign(config, makeParam('ios_update_message', t.update_message));
     Object.assign(config, makeParam('ios_store_url', t.ios_store_url));
   }
-
-  // Unified title/message
-  Object.assign(config, makeParam('update_title', t.update_title));
-  Object.assign(config, makeParam('update_message', t.update_message));
 
   return config;
 }
@@ -1526,10 +1599,6 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
       return res.status(400).json({ error: 'Versi tidak boleh kosong' });
     }
 
-    // Check against last published version for the same env
-    const slug = 'tms-v2';
-    const lastVc = await db('version_configs').where('slug', slug).first();
-
     // Inject platform from params_json
     try {
       const pp = JSON.parse(existing.params_json || '{}');
@@ -1538,16 +1607,42 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
 
     const p = existing.platform || 'android';
 
-    let lastConfig = null;
-    if (lastVc) {
-      lastConfig = JSON.parse(lastVc.config_json);
-      const suffix = existing.suffix || '';
+    // ── Ambil config terkini dari Laravel (sync), bukan dari version_configs ──
+    const rcConfig = require('../config');
+    const apiKey = rcConfig.remoteConfig.apiKey;
+    const endpoint = rcConfig.remoteConfig.endpoint;
+    const env = existing.env || 'prod';
+    const backendUrl = env === 'dev' ? rcConfig.remoteConfig.devBackendUrl : env === 'dev-server' ? rcConfig.remoteConfig.devServerBackendUrl : rcConfig.remoteConfig.prodBackendUrl;
 
+    let lastConfig = null;
+    let syncFailed = false;
+    try {
+      const syncResp = await fetch(`${backendUrl}${endpoint}`, {
+        headers: { 'X-API-Key': apiKey },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (syncResp.ok) {
+        const syncData = await syncResp.json();
+        lastConfig = syncData.data || null;
+      } else {
+        syncFailed = true;
+      }
+    } catch { syncFailed = true; }
+
+    // Fallback ke version_configs kalo Laravel unreachable
+    if (!lastConfig) {
+      const slug = 'tms-v2';
+      const lastVc = await db('version_configs').where('slug', slug).first();
+      if (lastVc) lastConfig = JSON.parse(lastVc.config_json);
+    }
+
+    if (lastConfig) {
+      // Dev and Prod hit different backend URLs, so keys are always non-suffixed
       const validateVersion = (ver, platformKey) => {
         if (!ver) return null;
-        const lastVer = lastConfig[`latest_version${suffix}`] || lastConfig[`${platformKey}_latest_version${suffix}`] || '';
-        if (lastVer && compareSemver(ver, lastVer) <= 0) {
-          return `Versi ${ver} tidak valid (${platformKey}). Versi ${suffix ? 'Dev' : 'Prod'} terakhir: ${lastVer}. Gunakan versi yang lebih baru.`;
+        const lastVer = lastConfig[`${platformKey}_latest_version`] || lastConfig['latest_version'] || '';
+        if (lastVer && compareSemver(ver, lastVer) < 0) {
+          return `Versi ${ver} tidak valid (${platformKey}). Versi terakhir: ${lastVer}. Tidak boleh turun versi.`;
         }
         return null;
       };
@@ -1556,22 +1651,21 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
       const errIos = (p === 'ios' || p === 'both') ? validateVersion(existing.ios_latest || existing.target_version, 'ios') : null;
       const err = errAndroid || errIos;
       if (err) {
-        return res.status(400).json({ error: err, lastVersion: errAndroid ? lastConfig[`latest_version${suffix}`] || '' : lastConfig[`ios_latest_version${suffix}`] || '', newVersion: errAndroid ? (existing.android_latest || existing.target_version) : (existing.ios_latest || existing.target_version), suffix });
+        const lastVer = errAndroid
+          ? (lastConfig['android_latest_version'] || lastConfig['latest_version'] || '')
+          : (lastConfig['ios_latest_version'] || '');
+        return res.status(400).json({ error: err, lastVersion: lastVer, newVersion: errAndroid ? (existing.android_latest || existing.target_version) : (existing.ios_latest || existing.target_version), syncFailed });
       }
     }
 
-    // Capture before values (previous config)
-    const suffixConfig = existing.suffix || '';
+    // Capture before values (previous config) — non-suffixed keys only, since Dev/Prod hit different URLs
     const cfgKey = (pref) => {
       if (!lastConfig) return '';
-      const suffixed = pref + suffixConfig;
       const base = pref;
-      const unifiedSuffixed = 'minimum_version' + suffixConfig;
       const unified = 'minimum_version';
-      const latestSuffixed = 'latest_version' + suffixConfig;
       const latest = 'latest_version';
       const isLatest = pref.includes('latest');
-      return lastConfig[suffixed] || lastConfig[base] || lastConfig[isLatest ? latestSuffixed : unifiedSuffixed] || lastConfig[isLatest ? latest : unified] || '';
+      return lastConfig[base] || lastConfig[isLatest ? latest : unified] || '';
     };
     const beforeAndroidMin = cfgKey('android_minimum_version');
     const beforeAndroidLatest = cfgKey('android_latest_version');
@@ -1586,6 +1680,7 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
     const projectId = existing.project_id;
 
     // Upsert into version_configs
+    const slug = 'tms-v2';
     const existingVc = await db('version_configs').where('slug', slug).first();
     if (existingVc) {
       await db('version_configs').where('slug', slug).update({
@@ -1611,10 +1706,11 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
     });
 
     // Record in history
-    const [historyId] = await db('remote_config_history').insert({
+    const [{ id: historyId }] = await db('remote_config_history').insert({
       project_id: existing.project_id,
+      template_name: existing.name,
       mode: existing.mode,
-      suffix: existing.suffix || '',
+      env: existing.env || 'prod',
       before_android_min: beforeAndroidMin,
       before_android_latest: beforeAndroidLatest,
       before_ios_min: beforeIosMin,
@@ -1629,18 +1725,11 @@ router.post('/remote-config/template/:id/publish', async (req, res) => {
       update_message: existing.update_message,
       status: 'success',
       error_message: null,
-    });
+    }).returning('id');
 
     await db('remote_config_templates').where('id', req.params.id).update({ history_id: historyId });
 
     // ── Push ke Backend API ──
-    const rcConfig = require('../config');
-    // Environment determined from template's stored suffix
-    const env = (existing.suffix || '') === '_dev' ? 'dev' : 'prod';
-    const backendUrl = env === 'dev' ? rcConfig.remoteConfig.devBackendUrl : rcConfig.remoteConfig.prodBackendUrl;
-    const apiKey = rcConfig.remoteConfig.apiKey;
-    const endpoint = rcConfig.remoteConfig.endpoint;
-
     let backendResult = null;
     try {
       const response = await fetch(`${backendUrl}${endpoint}`, {
