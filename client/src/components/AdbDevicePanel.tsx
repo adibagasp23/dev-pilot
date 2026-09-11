@@ -1,5 +1,4 @@
 import { useEffect, useState, useRef } from 'react';
-import { toast } from './Snackbar';
 
 interface AdbDevice {
   id: string;
@@ -16,6 +15,7 @@ interface AdbDevicePanelProps {
 }
 
 export function useAdbDevices() {
+  const [tcpiping, setTcpiping] = useState<string | null>(null);
   const [devices, setDevices] = useState<AdbDevice[]>([]);
   const discoveredRef = useRef<AdbDevice[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -76,11 +76,25 @@ export function useAdbDevices() {
     } catch { return { ok: false }; }
   };
 
-  return { devices, scanning, connecting, loadDevices, scanWifi, connect, disconnectAll };
-}
+  const tcpip = async (deviceId: string) => {
+    setTcpiping(deviceId);
+    try {
+      const res = await fetch('/api/adb-tcpip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: deviceId }),
+      });
+      const data = await res.json();
+      if (data.ok) setTimeout(loadDevices, 2000);
+      return data;
+    } finally { setTcpiping(null); }
+  };
+
+  return { devices, scanning, connecting, tcpiping, loadDevices, scanWifi, connect, disconnectAll, tcpip };
+};
 
 export default function AdbDevicePanel({ onLog, compact, selectedDevice: externalSelected, onDeviceSelect }: AdbDevicePanelProps) {
-  const { devices, scanning, connecting, loadDevices, scanWifi, connect, disconnectAll } = useAdbDevices();
+  const { devices, scanning, connecting, tcpiping, loadDevices, scanWifi, connect, disconnectAll, tcpip } = useAdbDevices();
   const [internalSelected, setInternalSelected] = useState('');
   const selectedDevice = externalSelected ?? internalSelected;
   const setSelectedDevice = (id: string) => {
@@ -132,6 +146,26 @@ export default function AdbDevicePanel({ onLog, compact, selectedDevice: externa
     }
   };
 
+  const handleTcpip = async (deviceId: string) => {
+    addLog(`🔄 Mengaktifkan ADB TCP/IP di ${deviceId}...`);
+    const data = await tcpip(deviceId);
+    if (data?.ok) {
+      addLog(`✅ Port 5555 aktif di ${deviceId}, cabut USB & connect via WiFi`);
+    } else {
+      addLog(`❌ Gagal: ${data?.error || data?.output || 'unknown'}`);
+    }
+  };
+
+  const manualUsbDevices = devices.filter(d => d.status === 'device' && !d.id.includes('.') && !d.id.includes(':'));
+  const [manualDeviceId, setManualDeviceId] = useState('');
+
+  // Auto-fill manual input dengan USB device pertama
+  useEffect(() => {
+    if (manualUsbDevices.length > 0) {
+      setManualDeviceId(prev => prev || manualUsbDevices[0].id);
+    }
+  }, [devices]);
+
   return (
     <div className={compact ? '' : 'bg-white p-4 rounded-lg shadow-sm border'}>
       <div className="flex items-center justify-between mb-2">
@@ -181,6 +215,15 @@ export default function AdbDevicePanel({ onLog, compact, selectedDevice: externa
                   {d.status}
                 </span>
               </label>
+              {d.status === 'device' && !d.id.includes('.') && !d.id.includes(':') && (
+                <button
+                  onClick={() => handleTcpip(d.id)}
+                  disabled={tcpiping === d.id}
+                  className="text-xs px-2 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 transition"
+                >
+                  {tcpiping === d.id ? '⏳' : '🔌 TCPIP 5555'}
+                </button>
+              )}
               {d.status !== 'device' && d.id.includes('.') && (
                 <button
                   onClick={() => handleConnect(d.id)}
@@ -194,6 +237,34 @@ export default function AdbDevicePanel({ onLog, compact, selectedDevice: externa
           ))}
         </div>
       )}
+
+      {/* Manual TCPIP 5555 — otomatis pake device USB pertama */}
+      <div className="mt-3 pt-3 border-t border-gray-200">
+        <div className="flex gap-2 items-center">
+          <input
+            type="text"
+            value={manualDeviceId}
+            onChange={e => setManualDeviceId(e.target.value)}
+            placeholder={manualUsbDevices.length > 0 ? manualUsbDevices[0].id : 'Serial device (terisi otomatis)'}
+            className="flex-1 px-3 py-1.5 border rounded text-xs font-mono"
+          />
+          <button
+            onClick={() => {
+              const targetId = manualDeviceId.trim() || manualUsbDevices[0]?.id;
+              if (!targetId) {
+                addLog('⚠️ Tidak ada device USB terdeteksi. Colok HP via USB dengan USB Debugging aktif.');
+                return;
+              }
+              handleTcpip(targetId);
+            }}
+            disabled={tcpiping !== null}
+            className="text-xs px-3 py-1.5 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:bg-gray-400 transition whitespace-nowrap"
+          >
+            {tcpiping ? '⏳' : '🔌 TCPIP 5555'}
+          </button>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-1">Otomatis pake device USB pertama. Klik langsung tanpa perlu isi serial.</p>
+      </div>
     </div>
   );
 }

@@ -218,14 +218,25 @@ function FolderNode({
                 navigator.clipboard.writeText(log);
                 toast('Full log copied!');
               }}
-              onCopyVisible={() => {
-                navigator.clipboard.writeText(log);
-                toast('Log copied!');
-              }}
+
               onClear={async () => {
                 setRunningLog(p.id, '');
                 await api.clearLogs(running!.processId).catch(() => {});
                 toast('Terminal cleared!');
+              }}
+              onOpenDevTools={(_pid) => {
+                const logText = log || '';
+                const devToolsMatch = logText.match(/https?:\/\/[^\s]+\/devtools\/\?uri=ws:[^\s]+/);
+                const vmMatch = logText.match(/https?:\/\/127\.0\.0\.1:\d+\/[^\s/]+\//);
+                if (devToolsMatch) {
+                  window.open(devToolsMatch[0], '_blank');
+                  toast('🔧 Opening DevTools...');
+                } else if (vmMatch) {
+                  window.open(vmMatch[0], '_blank');
+                  toast('🔧 Opening VM Service...');
+                } else {
+                  toast('⚠️ DevTools URL belum muncul. Tunggu sampai Flutter selesai build.');
+                }
               }}
             />
           </div>
@@ -303,6 +314,7 @@ export function Dashboard() {
   }, [searchParams, setSearchParams]);
   const [runningFilter, setRunningFilter] = useState<'all' | 'running' | 'stopped'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [runningProjects, setRunningProjects] = useState<Record<number, { processId: number; status: string; projectId: number }>>({});
   const [runningLogs, setRunningLogs] = useState<Record<number, string>>({});
 
@@ -443,10 +455,42 @@ export function Dashboard() {
     agent: <span className="inline-flex items-center gap-1"><IconRobot className="w-3 h-3 text-green-500" /> Agent</span>,
   };
 
-  // Apply subtype filter
-  const displayedByType = subtypeFilter
+  // Extract unique groups from project names
+  const groups = (() => {
+    const map: Record<string, number> = {};
+    for (const p of projects) {
+      const parts = p.name.replace(/^~\//, '').split('/');
+      let group: string;
+      if (parts[0] === 'cipta antara digital') {
+        group = 'cipta antara digital';
+      } else if (parts[0] === 'kit') {
+        group = parts.slice(0, 2).join('/');
+      } else if (parts[0] === 'ypt') {
+        group = parts.slice(0, 2).join('/');
+      } else if (parts[0] === 'freelance') {
+        group = 'freelance';
+      } else {
+        group = parts[0];
+      }
+      map[group] = (map[group] || 0) + 1;
+    }
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  })();
+
+  // Apply subtype + group filter
+  let displayedByType = subtypeFilter
     ? projects.filter(p => p.type === subtypeFilter)
     : projects;
+  if (groupFilter) {
+    displayedByType = displayedByType.filter(p => {
+      const parts = p.name.replace(/^~\//, '').split('/');
+      if (groupFilter === 'cipta antara digital') return parts[0] === 'cipta antara digital';
+      if (groupFilter.startsWith('kit/')) return parts[0] === 'kit' && parts[1] === groupFilter.split('/')[1];
+      if (groupFilter.startsWith('ypt/')) return parts[0] === 'ypt' && parts[1] === groupFilter.split('/')[1];
+      if (groupFilter === 'freelance') return parts[0] === 'freelance';
+      return parts[0] === groupFilter;
+    });
+  }
 
   const totalRunning = Object.keys(countMap).filter(id => displayedByType.some(p => p.id === Number(id))).reduce((sum, id) => sum + (countMap[Number(id)] || 0), 0);
 
@@ -533,6 +577,23 @@ export function Dashboard() {
               })}
             </div>
           )}
+          {groups.length > 0 && (
+            <div className="flex gap-1.5 mt-1.5 flex-wrap">
+              {groups.map(([group, count]) => (
+                <button
+                  key={group}
+                  onClick={() => setGroupFilter(groupFilter === group ? null : group)}
+                  className={`text-xs px-2.5 py-0.5 rounded-full font-medium transition cursor-pointer ${
+                    groupFilter === group
+                      ? 'bg-emerald-500 text-white'
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                  }`}
+                >
+                  📁 {group} ({count})
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <button
@@ -598,7 +659,7 @@ export function Dashboard() {
                 setRunningProject={setRunningProject}
                 runningLogs={runningLogs}
                 setRunningLog={setRunningLog}
-                forceExpand={runningFilter !== 'all' || !!subtypeFilter || !!searchQuery}
+                forceExpand={runningFilter !== 'all' || !!subtypeFilter || !!searchQuery || !!groupFilter}
               />
             ))}
           </CardContent>

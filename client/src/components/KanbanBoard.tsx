@@ -206,17 +206,17 @@ const handleDrop = (e: React.DragEvent, targetStatus: string) => {
           onDragOver={(e) => handleDragOver(e, statusKey(col.name))}
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, statusKey(col.name))}
-          className={`rounded-xl border transition-all duration-200 ${
+          className={`rounded-xl border transition-all duration-200 flex flex-col ${
             dragOverCol === statusKey(col.name)
               ? 'border-emerald-500/60 bg-black shadow-lg shadow-emerald-500/5'
               : 'border-gray-700/60 bg-black'
           }`}
         >
-          <div className="px-4 py-3 flex items-center justify-between">
+          <div className="px-4 py-3 flex items-center justify-between flex-shrink-0">
             <span className="text-sm font-semibold text-gray-200 tracking-wide">{col.name}</span>
-            <span className="text-xs font-medium text-gray-400 bg-gray-800/80 px-2 py-0.5 rounded-full">{col.tasks.length}</span>
+            <span className="text-xs font-medium text-gray-400 bg-gray-800/80 px-2 py-0.5 rounded-full flex-shrink-0">{col.tasks.length}</span>
           </div>
-          <div className="p-2.5 space-y-2.5 min-h-[100px]">
+          <div className="p-2.5 space-y-2.5 min-h-[100px] overflow-y-auto flex-1 max-h-[calc(100vh-12rem)]">
             {col.tasks.map(task => {
               const priorityGradient = PRIORITY_COLORS[task.priority] || PRIORITY_COLORS.medium;
               return (

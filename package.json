@@ -1,30 +1,39 @@
 {
   "name": "process-manager",
   "version": "1.0.0",
-  "description": "",
+  "description": "Web-based process manager untuk development Flutter & Laravel",
   "main": "index.js",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "start": "node index.js",
-    "dev": "concurrently \"node --watch index.js\" \"cd client && npm run dev\"",
-    "dev:backend": "node --watch index.js",
+    "start": "node --env-file-if-exists=.env index.js",
+    "dev": "concurrently \"node --watch --env-file-if-exists=.env index.js\" \"cd client && npm run dev\"",
+    "dev:backend": "node --watch --env-file-if-exists=.env index.js",
     "dev:frontend": "cd client && npm run dev",
     "build": "cd client && npm run build",
     "migrate": "node -e \"require('./database/db').migrate()\""
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "process-manager",
+    "devtools",
+    "flutter",
+    "laravel",
+    "express",
+    "react"
+  ],
+  "author": "Adiba Gas Pratama",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "better-sqlite3": "^12.11.1",
     "ejs": "^6.0.1",
     "express": "^5.2.1",
     "express-ejs-layouts": "^2.5.1",
+    "http-proxy-middleware": "^4.2.0",
     "knex": "^3.3.0",
     "multer": "^2.2.0",
+    "pg": "^8.22.0",
     "strip-ansi": "^7.2.0",
     "tailwindcss": "^3.4.19",
     "zod": "^4.4.3"

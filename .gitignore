@@ -3,11 +3,25 @@ client/node_modules/
 client/dist/
 database/*.db
 database/*.sqlite
+database/*.db-shm
+database/*.db-wal
+database/*.sqlite-shm
+database/*.sqlite-wal
 database/*.bak
 *.db-journal
 *.db-wal
+*.bak
 backups/
 uploads/
+logs/
 .env
+.env.local
 *.log
 .DS_Store
+
+# Dokumen internal (tidak untuk publik)
+docs/private/
+
+# Cache graphify (dapat diregenerasi)
+graphify-out/cache/
+graphify-out/.graphify_python

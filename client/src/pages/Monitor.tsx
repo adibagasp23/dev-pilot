@@ -107,9 +107,44 @@ export default function Monitor() {
     } catch {}
   };
 
+  const handleRestart = async (pid: number) => {
+    try {
+      await api.stopProcess(pid);
+      await api.clearLogs(pid);
+      setLogs((prev) => ({ ...prev, [pid]: '' }));
+      await new Promise((r) => setTimeout(r, 300));
+      const updated = await api.startProcess(pid);
+      setProcesses((prev) => prev.map((p) => (p.id === pid ? { ...p, ...updated } : p)));
+      toast('Process restarted');
+    } catch (err: any) {
+      toast(`❌ ${err.message}`);
+    }
+  };
+
   const handleClear = (pid: number) => {
     setLogs((prev) => ({ ...prev, [pid]: '' }));
     api.clearLogs(pid).catch(() => {});
+  };
+
+  const handleCopyVisible = (pid: number) => {
+    const pre = preRefs.current[pid];
+    const log = logs[pid] || '';
+    if (!pre || !log) return;
+
+    const lines = log.split('\n');
+    const style = getComputedStyle(pre);
+    const lineHeight = parseFloat(style.lineHeight) || 20;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+
+    const scrollTop = pre.scrollTop;
+    const clientHeight = pre.clientHeight;
+
+    const firstLine = Math.max(0, Math.floor((scrollTop - paddingTop) / lineHeight));
+    const lastLine = Math.min(lines.length, Math.ceil((scrollTop + clientHeight - paddingTop) / lineHeight));
+
+    const visibleText = lines.slice(firstLine, lastLine).join('\n');
+    navigator.clipboard.writeText(visibleText);
+    toast('Visible log copied!');
   };
 
   // Group processes by their parent folder
@@ -323,6 +358,13 @@ export default function Monitor() {
                       </div>
                       <div className="flex gap-2">
                         <button
+                          onClick={() => handleCopyVisible(proc.id)}
+                          className="text-xs text-gray-500 hover:text-emerald-400 transition"
+                          title="Copy visible area"
+                        >
+                          👁 View
+                        </button>
+                        <button
                           onClick={() => {
                             navigator.clipboard.writeText(logs[proc.id] || '');
                             toast('Log copied!');
@@ -352,6 +394,12 @@ export default function Monitor() {
                           className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600 transition"
                         >
                           Stop
+                        </button>
+                        <button
+                          onClick={() => handleRestart(proc.id)}
+                          className="text-xs bg-yellow-600 text-white px-2 py-0.5 rounded hover:bg-yellow-500 transition"
+                        >
+                          Restart
                         </button>
                       </div>
                     </div>

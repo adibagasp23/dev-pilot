@@ -10,7 +10,7 @@ exports.up = function(knex) {
       table.increments('id').primary();
       table.string('name').notNullable();
       table.string('path').notNullable().unique();
-      table.enu('type', ['flutter', 'laravel', 'other']).notNullable();
+      table.string('type').notNullable();
       table.integer('scan_folder_id').references('id').inTable('scan_folders');
       table.timestamp('last_scanned').defaultTo(knex.fn.now());
     })
@@ -25,7 +25,7 @@ exports.up = function(knex) {
       table.integer('project_id').references('id').inTable('projects');
       table.string('label').notNullable();
       table.string('command').notNullable();
-      table.enu('status', ['running', 'stopped', 'error']).defaultTo('stopped');
+      table.string('status').defaultTo('stopped');
       table.integer('pid');
       table.integer('port');
       table.string('log_path');

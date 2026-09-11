@@ -2,6 +2,7 @@ import { useRef, useEffect, useCallback } from 'react';
 import FlutterQuickActions from './FlutterQuickActions';
 import TerminalInput from './TerminalInput';
 import DebugOverlayBadges from './DebugOverlayBadges';
+import { toast } from './Snackbar';
 
 interface ProcessLogPanelProps {
   processId: number;
@@ -9,11 +10,11 @@ interface ProcessLogPanelProps {
   projectType?: string;
   onSend: (processId: number, value: string) => void;
   onCopyAll: () => void;
-  onCopyVisible: () => void;
   onClear: () => void;
+  onOpenDevTools?: (processId: number) => void;
 }
 
-export default function ProcessLogPanel({ processId, log, projectType, onSend, onCopyAll, onCopyVisible, onClear }: ProcessLogPanelProps) {
+export default function ProcessLogPanel({ processId, log, projectType, onSend, onCopyAll, onClear, onOpenDevTools }: ProcessLogPanelProps) {
   const preRef = useRef<HTMLPreElement | null>(null);
   const userScrolled = useRef(false);
 
@@ -28,6 +29,26 @@ export default function ProcessLogPanel({ processId, log, projectType, onSend, o
     if (!userScrolled.current && preRef.current) {
       preRef.current.scrollTop = preRef.current.scrollHeight;
     }
+  }, [log]);
+
+  const handleCopyVisible = useCallback(() => {
+    const pre = preRef.current;
+    if (!pre || !log) return;
+
+    const lines = log.split('\n');
+    const style = getComputedStyle(pre);
+    const lineHeight = parseFloat(style.lineHeight) || 20;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+
+    const scrollTop = pre.scrollTop;
+    const clientHeight = pre.clientHeight;
+
+    const firstLine = Math.max(0, Math.floor((scrollTop - paddingTop) / lineHeight));
+    const lastLine = Math.min(lines.length, Math.ceil((scrollTop + clientHeight - paddingTop) / lineHeight));
+
+    const visibleText = lines.slice(firstLine, lastLine).join('\n');
+    navigator.clipboard.writeText(visibleText);
+    toast('Visible log copied!');
   }, [log]);
 
   return (
@@ -55,7 +76,7 @@ export default function ProcessLogPanel({ processId, log, projectType, onSend, o
             📋 All
           </button>
           <button
-            onClick={onCopyVisible}
+            onClick={handleCopyVisible}
             className="text-xs text-gray-500 hover:text-emerald-400 transition cursor-pointer"
             title="Copy visible area"
           >
@@ -97,6 +118,7 @@ export default function ProcessLogPanel({ processId, log, projectType, onSend, o
           <FlutterQuickActions
             processId={processId}
             onSend={onSend}
+            onOpenDevTools={onOpenDevTools}
           />
         </div>
       )}

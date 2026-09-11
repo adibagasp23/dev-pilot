@@ -108,6 +108,8 @@ function makeAnsiStripper() {
 }
 
 const runningProcesses = new Map();
+// Processes that user explicitly stopped (avoid marking as 'error' on kill signal)
+const stoppingProcesses = new Set();
 // Store logs per process: { processId: { stdout: [...], stderr: [...] } }
 const processLogs = new Map();
 const MAX_LOG_LINES = 2000;
@@ -170,10 +172,8 @@ async function startProcess(processId) {
 
   // Dynamic fvm detection: if command starts with 'flutter'
   let command = proc.command;
-  if (command === 'pi') {
-    // Use unbuffer (from expect) to create a PTY for TUI apps
-    command = 'unbuffer pi';
-  }
+
+  // Step 1: FVM — prepend 'fvm ' if flutter (not already fvm)
   if (command.startsWith('flutter') && !command.startsWith('fvm ')) {
     const { execSync } = require('child_process');
     try {
@@ -183,18 +183,78 @@ async function startProcess(processId) {
     } catch {}
   }
 
+  // Step 2: PTY — use unbuffer -p for interactive/TUI apps
+  // -p = pipeline mode: stdin dari pipe diforward ke PTY
+  // unbuffer sendiri dari brew install expect
+  if (command === 'pi' || command.startsWith('flutter') || command.startsWith('fvm flutter') || command.startsWith('fvm dart')) {
+    if (!command.startsWith('unbuffer ')) {
+      // Cek availability
+      try {
+        require('child_process').execSync('which unbuffer', { stdio: 'ignore' });
+        command = 'unbuffer -p ' + command;
+      } catch (_) {
+        // Fallback: tanpa unbuffer (stdin mungkin gak work)
+        console.warn('[process-manager] unbuffer tidak ditemukan, lanjut tanpa PTY');
+      }
+    }
+  }
+
   // Replace {PORT} placeholder with actual port from DB
   if (proc.port) {
     command = command.replace(/{PORT}/g, String(proc.port));
   }
 
+  // Validate project path exists before spawning
+  const projectPath = proc.project_path;
+  if (projectPath && !fs.existsSync(projectPath)) {
+    log('WARN', `Project path does not exist: ${projectPath}. Using fallback cwd.`);
+    // Create the directory to avoid ENOENT on spawn
+    try {
+      fs.mkdirSync(projectPath, { recursive: true });
+    } catch (e) {
+      log('WARN', `Could not create project path: ${e.message}`);
+    }
+  }
+
   // Wrap in SIGPIPE-ignoring shell to prevent crash when parent dies (e.g., server restart)
   const wrappedCmd = `trap '' PIPE; exec ${command}`;
-  const child = spawn(wrappedCmd, [], {
-    cwd: proc.project_path,
-    stdio: ['pipe', 'pipe', 'pipe'],
-    shell: true,
-    detached: true,
+
+  // Use a Promise to handle spawn errors gracefully
+  const child = await new Promise((resolve, reject) => {
+    try {
+      const c = spawn(wrappedCmd, [], {
+        cwd: projectPath && fs.existsSync(projectPath) ? projectPath : process.cwd(),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+        detached: true,
+      });
+
+      // If spawn succeeded immediately, resolve
+      // Attach error handler immediately to catch async errors
+      c.on('error', async (err) => {
+        log('ERROR', `Process spawn error (${processId})`, { message: err.message });
+        runningProcesses.delete(processId);
+        const logs = processLogs.get(processId);
+        if (logs) pushLine(logs, { s: 'i', t: `\n⚠ Failed to start: ${err.message}\n` });
+        try {
+          await db('processes').where('id', processId).update({ status: 'error' });
+        } catch {}
+        notifySSEClients(processId, 'status', { status: 'error' });
+        reject(err);
+      });
+
+      resolve(c);
+    } catch (err) {
+      log('ERROR', `Process spawn exception (${processId})`, { message: err.message });
+      reject(err);
+    }
+  }).catch(async (err) => {
+    // If spawn failed, update DB and throw
+    if (runningProcesses.has(processId)) runningProcesses.delete(processId);
+    try {
+      await db('processes').where('id', processId).update({ status: 'error' });
+    } catch {}
+    throw new Error(`Failed to start process: ${err.message}`);
   });
 
   const pid = child.pid;
@@ -204,15 +264,20 @@ async function startProcess(processId) {
   processLogs.set(processId, { lines: [] });
   const stripper = makeAnsiStripper();
 
-  child.stdout.on('data', (data) => {
-    const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'o', t: stripper(data.toString()) });
-  });
+  // Guard against null stdio (can happen on failed spawn)
+  if (child.stdout) {
+    child.stdout.on('data', (data) => {
+      const logs = processLogs.get(processId);
+      if (logs) pushLine(logs, { s: 'o', t: stripper(data.toString()) });
+    });
+  }
 
-  child.stderr.on('data', (data) => {
-    const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'e', t: stripper(data.toString()) });
-  });
+  if (child.stderr) {
+    child.stderr.on('data', (data) => {
+      const logs = processLogs.get(processId);
+      if (logs) pushLine(logs, { s: 'e', t: stripper(data.toString()) });
+    });
+  }
 
   await db('processes').where('id', processId).update({
     status: 'running',
@@ -226,22 +291,16 @@ async function startProcess(processId) {
 
   child.on('exit', async (code) => {
     runningProcesses.delete(processId);
+    const isStopping = stoppingProcesses.has(processId);
+    stoppingProcesses.delete(processId);
     const logs = processLogs.get(processId);
     if (logs) pushLine(logs, { s: 'i', t: `\n⚠ Process exited with code ${code}\n` }, processId);
     await db('processes').where('id', processId).update({
-      status: code === 0 ? 'stopped' : 'error',
+      status: isStopping ? 'stopped' : (code === 0 ? 'stopped' : 'error'),
       pid: null,
       stopped_at: db.fn.now(),
     });
-    notifySSEClients(processId, 'status', { status: code === 0 ? 'stopped' : 'error' });
-  });
-
-  child.on('error', async (err) => {
-    log('ERROR', `Process error (${processId})`, { message: err.message });
-    runningProcesses.delete(processId);
-    const logs = processLogs.get(processId);
-    if (logs) pushLine(logs, { s: 'i', t: `\n⚠ Failed to start: ${err.message}\n` });
-    await db('processes').where('id', processId).update({ status: 'error' });
+    notifySSEClients(processId, 'status', { status: isStopping ? 'stopped' : (code === 0 ? 'stopped' : 'error') });
   });
 
   return { pid, status: 'running' };
@@ -298,6 +357,8 @@ async function stopProcess(processId) {
 
   const child = runningProcesses.get(processId);
   if (child) {
+    // Mark as user-stopped so exit handler records 'stopped' (not 'error')
+    stoppingProcesses.add(processId);
     // Kill entire process tree recursively
     await killProcessTree(child.pid, 'SIGTERM');
     // Also kill orphaned processes related to this project

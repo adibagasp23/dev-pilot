@@ -25,13 +25,20 @@ process.on('uncaughtException', (err) => {
   const ts = new Date().toISOString();
   const line = `[${ts}] [FATAL] Uncaught exception ${err.message}\n${err.stack}`;
   try { fs.appendFileSync(path.join(logDir, 'app.log'), line + '\n'); } catch {}
-  process.exit(1);
+  // Only exit for fatal errors — let the process try to recover
+  if (err.message?.includes('ENOENT') || err.message?.includes('EADDRINUSE') || err.code === 'MODULE_NOT_FOUND') {
+    process.exit(1);
+  }
 });
 process.on('unhandledRejection', (reason) => {
   if (reason?.code === 'EPIPE' || reason?.message?.includes('EPIPE')) return;
   const ts = new Date().toISOString();
   const line = `[${ts}] [FATAL] Unhandled rejection ${reason?.message || String(reason)}`;
   try { fs.appendFileSync(path.join(logDir, 'app.log'), line + '\n'); } catch {}
+  // Only exit for fatal errors
+  if (reason?.message?.includes('ENOENT') || reason?.code === 'EADDRINUSE') {
+    process.exit(1);
+  }
 });
 
 const app = express();
@@ -57,10 +64,12 @@ const app = express();
     }
 
     // Also kill any lingering processes on known ports (status=stopped tapi process masih jalan)
-    const allWithPorts = await db('processes').whereNotNull('port').where('port', '!=', '');
+    const allWithPorts = await db('processes').whereNotNull('port').where(db.raw('CAST("port" AS TEXT)'), '!=', '');
     for (const proc of allWithPorts) {
       try {
-        require('child_process').execSync(`lsof -ti:${proc.port} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' });
+        if (proc.port) {
+          require('child_process').execSync(`lsof -ti:${proc.port} | xargs kill -9 2>/dev/null`, { stdio: 'ignore' });
+        }
       } catch {}
     }
   } catch (err) {
@@ -69,8 +78,8 @@ const app = express();
 
   // Daily database backup
   const { backup } = require('./services/backup');
-  backup();
-  setInterval(() => { backup(); }, 60 * 60 * 1000);
+  try { backup(); } catch (e) { log('ERROR', 'Backup failed', { message: e.message }); }
+  setInterval(() => { try { backup(); } catch (e) { log('ERROR', 'Backup failed', { message: e.message }); } }, 60 * 60 * 1000);
 })();
 
 // Body parsing
@@ -99,16 +108,35 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // API routes
 app.use('/api', apiRoutes);
 
-// Serve React build in production
+// Client serving: static build (use Vite at :5173 for hot-reload dev)
 const clientBuild = path.join(__dirname, 'client', 'dist');
+
 app.use(express.static(clientBuild));
 app.use((req, res) => {
   res.sendFile(path.join(clientBuild, 'index.html'));
 });
 
 const server = app.listen(config.port, () => {
-  const port = server.address().port;
-  console.log(`API server running on http://localhost:${port}`);
-  console.log(`API: http://localhost:${port}/api`);
-  console.log(`Frontend: http://localhost:${port}/`);
+  try {
+    const addr = server.address();
+    if (!addr) {
+      log('ERROR', 'Server started but address unavailable');
+      return;
+    }
+    const port = addr.port;
+    console.log(`API server running on http://localhost:${port}`);
+    console.log(`API: http://localhost:${port}/api`);
+    console.log(`Frontend: http://localhost:${port}/`);
+  } catch (err) {
+    log('ERROR', 'Error in listen callback', { message: err.message });
+  }
+});
+
+// Handle server errors — if port is taken, exit immediately to avoid port conflict loops
+server.on('error', (err) => {
+  log('FATAL', 'Server error', { message: err.message, code: err.code });
+  if (err.code === 'EADDRINUSE') {
+    log('FATAL', `Port ${config.port} already in use — exiting to avoid conflict`);
+    process.exit(1);
+  }
 });

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { api } from '@/api';
 
 interface RcHistory {
   id: number;
+  template_name?: string;
   mode: string;
   suffix: string;
   before_android_min: string | null;
@@ -89,6 +89,7 @@ export default function RemoteConfig() {
                 <tr className="border-b text-left text-gray-500 text-xs uppercase">
                   <th className="py-2 pr-3">#</th>
                   <th className="py-2 pr-3">Waktu</th>
+                  <th className="py-2 pr-3">Template</th>
                   <th className="py-2 pr-3">Mode</th>
                   <th className="py-2 pr-3">Platform</th>
                   <th className="py-2 pr-3">Android</th>
@@ -105,6 +106,9 @@ export default function RemoteConfig() {
                       {new Date(h.created_at).toLocaleString('id-ID', {
                         day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
                       })}
+                    </td>
+                    <td className="py-2 pr-3 text-xs max-w-[100px] truncate" title={h.template_name || ''}>
+                      <span className="font-medium text-gray-700">{h.template_name || '—'}</span>
                     </td>
                     <td className="py-2 pr-3">
                       <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${MODE_COLORS[h.mode] || 'bg-gray-100'}`}>
@@ -147,7 +151,15 @@ export default function RemoteConfig() {
                     </td>
                     <td className="py-2 pr-2">
                       {h.status === 'success' ? (
-                        <span className="text-xs text-emerald-600 font-medium">✅</span>
+                        <span className="text-xs">
+                          {h.template_name ? (
+                            <>
+                              <span className="text-amber-600 font-medium">📄 Draft</span>
+                              <span className="text-gray-300 mx-1">→</span>
+                            </>
+                          ) : null}
+                          <span className="text-emerald-600 font-medium">✅</span>
+                        </span>
                       ) : (
                         <span className="text-xs text-red-600 font-medium" title={h.error_message || ''}>
                           ❌ {h.error_message && <span className="ml-1 text-gray-400">{h.error_message}</span>}

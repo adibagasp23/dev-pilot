@@ -150,9 +150,9 @@
     "semantic_hash": "66afab443934ac0ec6fffbac95d0411e"
   },
   "client/src/pages/ProjectDetail.tsx": {
-    "mtime": 1784614419.2394166,
-    "ast_hash": "a1d8c0fef21581dcbbc3c098256dbab3",
-    "semantic_hash": "a1d8c0fef21581dcbbc3c098256dbab3"
+    "mtime": 1784640488.3747177,
+    "ast_hash": "97ff3ef497ecb1573fd9f256509b2e27",
+    "semantic_hash": "97ff3ef497ecb1573fd9f256509b2e27"
   },
   "client/src/pages/PushApk.tsx": {
     "mtime": 1784597489.2088196,
@@ -160,9 +160,9 @@
     "semantic_hash": "80833303b38b82f54248fa3265b7fb44"
   },
   "client/src/pages/RemoteConfig.tsx": {
-    "mtime": 1784603001.291843,
-    "ast_hash": "a00cfda59448a52e744b495356195472",
-    "semantic_hash": "a00cfda59448a52e744b495356195472"
+    "mtime": 1784634485.9351828,
+    "ast_hash": "9c307846256295f1bde10575b791e4fb",
+    "semantic_hash": "9c307846256295f1bde10575b791e4fb"
   },
   "client/src/pages/Settings.tsx": {
     "mtime": 1784164931.695575,
@@ -200,19 +200,19 @@
     "semantic_hash": "3ffeadbd325cbb876a1168397b1843ff"
   },
   "config.js": {
-    "mtime": 1784610639.2093992,
-    "ast_hash": "de3747bf5a42186a0dd889f7ad4fac4c",
-    "semantic_hash": "de3747bf5a42186a0dd889f7ad4fac4c"
+    "mtime": 1784633989.5179594,
+    "ast_hash": "60e5c596264bb691b74ab145e0128c48",
+    "semantic_hash": "60e5c596264bb691b74ab145e0128c48"
   },
   "database/db.js": {
-    "mtime": 1784087647.711099,
-    "ast_hash": "a59cf2a20f13c581fe9433272a229b23",
-    "semantic_hash": "a59cf2a20f13c581fe9433272a229b23"
+    "mtime": 1784633994.5909965,
+    "ast_hash": "744bba0284e3536922f779be39f5b600",
+    "semantic_hash": "744bba0284e3536922f779be39f5b600"
   },
   "database/migrations/001_create_tables.js": {
-    "mtime": 1784087647.7112577,
-    "ast_hash": "63d058346867e784cae0e398088913f6",
-    "semantic_hash": "63d058346867e784cae0e398088913f6"
+    "mtime": 1784634296.6580844,
+    "ast_hash": "142a9c620b3ec3d197b3d425a9651243",
+    "semantic_hash": "142a9c620b3ec3d197b3d425a9651243"
   },
   "database/migrations/002_seed_templates.js": {
     "mtime": 1784087647.7113814,
@@ -270,14 +270,14 @@
     "semantic_hash": "39c31a169740c0f1dc90d9f58831e593"
   },
   "database/migrations/013_create_media.js": {
-    "mtime": 1784300383.7472358,
-    "ast_hash": "024d61fc0bba03ec3555a4e252b01ff2",
-    "semantic_hash": "024d61fc0bba03ec3555a4e252b01ff2"
+    "mtime": 1784634071.4846632,
+    "ast_hash": "718b3d4cdbf19f3cb6f7af3b79da8cba",
+    "semantic_hash": "718b3d4cdbf19f3cb6f7af3b79da8cba"
   },
   "database/migrations/014_add_remote_config_history.js": {
-    "mtime": 1784602647.8273127,
-    "ast_hash": "7ade417aa596721b1d842da4ae6e6258",
-    "semantic_hash": "7ade417aa596721b1d842da4ae6e6258"
+    "mtime": 1784634084.5689871,
+    "ast_hash": "8f6cbcb1ee438ffbdb74d6fcb1b2839e",
+    "semantic_hash": "8f6cbcb1ee438ffbdb74d6fcb1b2839e"
   },
   "database/migrations/014_add_remote_config_update_template.js": {
     "mtime": 1784545637.126447,
@@ -285,29 +285,29 @@
     "semantic_hash": "6875ba506c5c92e2eab81bd13eeda5bf"
   },
   "database/migrations/015_create_remote_config_templates.js": {
-    "mtime": 1784605219.9268665,
-    "ast_hash": "07416b9e6d53c9b897af28331dd5a1e6",
-    "semantic_hash": "07416b9e6d53c9b897af28331dd5a1e6"
+    "mtime": 1784634098.7244802,
+    "ast_hash": "980cfb3a7fbaae14faa36a19782b9a0b",
+    "semantic_hash": "980cfb3a7fbaae14faa36a19782b9a0b"
   },
   "database/migrations/016_create_version_configs.js": {
-    "mtime": 1784609844.7878287,
-    "ast_hash": "8ab7a5dd1e1a3f97f3f00429fdcd1bf9",
-    "semantic_hash": "8ab7a5dd1e1a3f97f3f00429fdcd1bf9"
+    "mtime": 1784634105.1440153,
+    "ast_hash": "149593a0fc18d8d5a542b0155c5ca333",
+    "semantic_hash": "149593a0fc18d8d5a542b0155c5ca333"
   },
   "database/migrations/017_add_history_extra_columns.js": {
-    "mtime": 1784609937.6047726,
-    "ast_hash": "9e1f2495bfc76166457043cf205d376c",
-    "semantic_hash": "9e1f2495bfc76166457043cf205d376c"
+    "mtime": 1784634111.404956,
+    "ast_hash": "e810262ebcaf6d828148e62e21722276",
+    "semantic_hash": "e810262ebcaf6d828148e62e21722276"
   },
   "index.js": {
-    "mtime": 1784603658.7975035,
-    "ast_hash": "3f61519ebbfd64cbcd4e6154aeb43fe3",
-    "semantic_hash": "3f61519ebbfd64cbcd4e6154aeb43fe3"
+    "mtime": 1784635162.9609063,
+    "ast_hash": "294e267cff104b85d81ef454610d75bb",
+    "semantic_hash": "294e267cff104b85d81ef454610d75bb"
   },
   "package.json": {
-    "mtime": 1784614053.5243669,
-    "ast_hash": "9ae608ba82b182963a53eb0648855685",
-    "semantic_hash": "9ae608ba82b182963a53eb0648855685"
+    "mtime": 1784634761.057669,
+    "ast_hash": "3142b4258d8c243a2ebb67d0ecfb7d59",
+    "semantic_hash": "3142b4258d8c243a2ebb67d0ecfb7d59"
   },
   "postcss.config.js": {
     "mtime": 1784087647.7357237,
@@ -315,9 +315,9 @@
     "semantic_hash": "854b38759e7a8b4b82306ae2d9a3a833"
   },
   "routes/api.js": {
-    "mtime": 1784613853.460112,
-    "ast_hash": "ae7977839f486081f69d0f19f77b6852",
-    "semantic_hash": "ae7977839f486081f69d0f19f77b6852"
+    "mtime": 1784640654.448628,
+    "ast_hash": "84def11687b1b9cce9e9e9c2eddbd4b3",
+    "semantic_hash": "84def11687b1b9cce9e9e9c2eddbd4b3"
   },
   "routes/processes.js": {
     "mtime": 1784087647.7365243,
@@ -378,5 +378,80 @@
     "mtime": 1784087647.7189376,
     "ast_hash": "d02aa346d159b169529f58c2e236ea80",
     "semantic_hash": "d02aa346d159b169529f58c2e236ea80"
+  },
+  "database/migrations/018_add_history_before_columns.js": {
+    "mtime": 1784634119.4310548,
+    "ast_hash": "63fd0090f29b5dbdc4c86530a4991fb8",
+    "semantic_hash": "63fd0090f29b5dbdc4c86530a4991fb8"
+  },
+  "database/migrations/019_add_history_template_name.js": {
+    "mtime": 1784634127.9490905,
+    "ast_hash": "cbdafdd8323312337938ed4f705caecf",
+    "semantic_hash": "cbdafdd8323312337938ed4f705caecf"
+  },
+  "AGENTS.md": {
+    "mtime": 1784509738.3683097,
+    "ast_hash": "63b37331a235ed10ceab03a15e2b95c9",
+    "semantic_hash": "63b37331a235ed10ceab03a15e2b95c9"
+  },
+  "README.md": {
+    "mtime": 1784087686.2189934,
+    "ast_hash": "367de95228baf29bc010313e72665a80",
+    "semantic_hash": "367de95228baf29bc010313e72665a80"
+  },
+  "client/README.md": {
+    "mtime": 1784087647.7288349,
+    "ast_hash": "10495bfcc6c568eca4dab6dd5df795d3",
+    "semantic_hash": "10495bfcc6c568eca4dab6dd5df795d3"
+  },
+  "client/index.html": {
+    "mtime": 1784087647.729059,
+    "ast_hash": "baf21e21fca5b61275289951469977fd",
+    "semantic_hash": "baf21e21fca5b61275289951469977fd"
+  },
+  "docs/CHANGELOG-feat-remote-config-v2.md": {
+    "mtime": 1784622048.1226645,
+    "ast_hash": "209ceb231f506aebd225f138149a2636",
+    "semantic_hash": "209ceb231f506aebd225f138149a2636"
+  },
+  "docs/superpowers/plans/2026-07-15-kanban-task-board-implementation.md": {
+    "mtime": 1784294802.9578683,
+    "ast_hash": "08f1431f1280f6f092bd84a6163ceb5b",
+    "semantic_hash": "08f1431f1280f6f092bd84a6163ceb5b"
+  },
+  "docs/superpowers/plans/2026-07-15-process-manager-implementation.md": {
+    "mtime": 1784087647.6976075,
+    "ast_hash": "c3259477892771180809729ae1a4331c",
+    "semantic_hash": "c3259477892771180809729ae1a4331c"
+  },
+  "docs/superpowers/specs/2026-07-15-kanban-task-board-design.md": {
+    "mtime": 1784294767.151565,
+    "ast_hash": "5c43e293a0547cefa9c294ddfc606d9b",
+    "semantic_hash": "5c43e293a0547cefa9c294ddfc606d9b"
+  },
+  "docs/superpowers/specs/2026-07-15-process-manager-design.md": {
+    "mtime": 1784087647.697997,
+    "ast_hash": "adcced18c6768915a43dd92ecaca2079",
+    "semantic_hash": "adcced18c6768915a43dd92ecaca2079"
+  },
+  "client/public/favicon.svg": {
+    "mtime": 1784087647.7302299,
+    "ast_hash": "7e840862161341271697daa99a40d76b",
+    "semantic_hash": "7e840862161341271697daa99a40d76b"
+  },
+  "client/public/icons.svg": {
+    "mtime": 1784087647.7303925,
+    "ast_hash": "3b4fcfcf393eca4d264dca4a4663bc37",
+    "semantic_hash": "3b4fcfcf393eca4d264dca4a4663bc37"
+  },
+  "client/src/assets/hero.png": {
+    "mtime": 1784087647.7309492,
+    "ast_hash": "aead493361b27e7510691c5d7072dfc1",
+    "semantic_hash": "aead493361b27e7510691c5d7072dfc1"
+  },
+  "client/src/assets/vite.svg": {
+    "mtime": 1784087647.7310758,
+    "ast_hash": "9960a24288958394ac50e57ff638b036",
+    "semantic_hash": "9960a24288958394ac50e57ff638b036"
   }
 }
