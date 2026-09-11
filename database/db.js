@@ -29,4 +29,13 @@ async function migrate() {
   console.log('Migrations up to date');
 }
 
-module.exports = { getDB, migrate };
+// Dipakai oleh `npm run migrate` agar proses keluar setelah selesai
+// (tanpa ini koneksi Knex menahan event loop sehingga perintah menggantung).
+async function destroy() {
+  if (db) {
+    await db.destroy();
+    db = null;
+  }
+}
+
+module.exports = { getDB, migrate, destroy };

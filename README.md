@@ -73,8 +73,23 @@ Menampilkan jumlah process yang berjalan/berhenti, dikelompokkan berdasarkan jen
 ## Persyaratan
 
 - **Node.js >= 22** (memanfaatkan `--env-file-if-exists`)
-- **PostgreSQL** (disarankan) atau **SQLite** (`DB_CLIENT=better-sqlite3`, tanpa setup tambahan)
-- Opsional: Flutter SDK, PHP/Composer (Laravel), `adb`, `openfortivpn`
+- **Database**: PostgreSQL **atau** SQLite. SQLite dipakai tanpa pemasangan apa pun — cukup set `DB_CLIENT=better-sqlite3` (lihat [Mulai Cepat](#mulai-cepat)).
+- Opsional sesuai kebutuhan: Flutter SDK, PHP/Composer (Laravel), `adb`, `openfortivpn`
+
+## Mulai Cepat
+
+Jalur tercepat, **tanpa PostgreSQL**:
+
+```bash
+git clone https://github.com/adibagasp23/dev-pilot.git
+cd dev-pilot
+npm install && (cd client && npm install)
+cp .env.example .env
+echo "DB_CLIENT=better-sqlite3" >> .env   # pakai SQLite
+npm run dev
+```
+
+Buka `http://localhost:5173`. Penjelasan tiap langkah ada di bagian [Cara Pakai](#cara-pakai).
 
 ## Cara Pakai
 
@@ -84,7 +99,10 @@ Menampilkan jumlah process yang berjalan/berhenti, dikelompokkan berdasarkan jen
 git clone https://github.com/adibagasp23/dev-pilot.git
 cd dev-pilot
 
+# Dependensi backend
 npm install
+
+# Dependensi frontend
 cd client && npm install && cd ..
 ```
 
@@ -98,17 +116,35 @@ Sesuaikan isi `.env` bila perlu. Tabel variabel tersedia di bagian [Konfigurasi]
 
 ### 3. Siapkan database
 
-Migration berjalan otomatis saat server pertama kali dijalankan. Untuk menjalankannya secara manual:
+Pilih **salah satu** dari dua opsi berikut.
+
+**Opsi A — SQLite (paling mudah, tanpa pemasangan tambahan)**
+
+Tambahkan baris berikut ke `.env`:
+
+```env
+DB_CLIENT=better-sqlite3
+```
+
+Berkas database dibuat otomatis di `database/process-manager.db`.
+
+**Opsi B — PostgreSQL**
+
+Pastikan server PostgreSQL berjalan, lalu buat database tujuan:
+
+```bash
+createdb process_manager
+```
+
+Sesuaikan `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, dan `DB_PASS` pada `.env` bila berbeda dari default.
+
+**Jalankan migrasi** (opsional, karena migrasi juga berjalan otomatis saat server pertama kali dijalankan):
 
 ```bash
 npm run migrate
 ```
 
-Bila memakai PostgreSQL, pastikan database tujuan sudah dibuat terlebih dahulu, contoh:
-
-```bash
-createdb process_manager
-```
+Perintah tersebut akan mencetak `Migrations up to date` lalu selesai.
 
 ### 4. Jalankan aplikasi
 
@@ -149,7 +185,9 @@ cd client && npm run build && cd ..
 npm start
 ```
 
-Frontend akan disajikan langsung oleh Express pada `http://localhost:9876`.
+Frontend hasil build akan disajikan langsung oleh Express pada `http://localhost:9876`.
+
+> Pada mode pengembangan, gunakan `npm run dev` agar frontend dilayani Vite di `http://localhost:5173` (dengan hot reload).
 
 ## Konfigurasi
 
@@ -171,6 +209,12 @@ Seluruh konfigurasi dibaca dari variabel lingkungan (`process.env`). Berkas `.en
 | `RC_DEV_SERVER_BACKEND_URL` | — | Backend Remote Config dev server |
 
 > **Catatan keamanan:** jangan pernah menuliskan API key atau kata sandi langsung di dalam kode. Gunakan `.env` yang sudah masuk `.gitignore`.
+
+Cek cepat isi `.env` minimal untuk SQLite:
+
+```env
+DB_CLIENT=better-sqlite3
+```
 
 ## Struktur Folder
 
