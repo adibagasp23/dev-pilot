@@ -29,9 +29,12 @@ async function addProject(db, fullPath, type, scanFolderId, scanAbsPath, found, 
     await db('projects').where('id', existing.id).update({ name: relativeName, last_scanned: db.fn.now(), group_name: groupName });
     found.push({ id: existing.id, name: relativeName, path: fullPath, type });
   } else {
-    const [id] = await db('projects').insert({
+    // .returning('id') WAJIB di Postgres: tanpa itu knex mengembalikan
+    // row count (angka), sehingga destrukturisasi melempar
+    // "is not iterable" — proyek sempat tercatat tapi scan berhenti.
+    const [{ id }] = await db('projects').insert({
       name: relativeName, path: fullPath, type, scan_folder_id: scanFolderId, group_name: groupName,
-    });
+    }).returning('id');
     found.push({ id, name: relativeName, path: fullPath, type });
   }
 }
@@ -49,7 +52,7 @@ async function scanFolder(folderPath) {
 
   let row = await db('scan_folders').where('path', absPath).first();
   if (!row) {
-    const [id] = await db('scan_folders').insert({ path: absPath });
+    const [{ id }] = await db('scan_folders').insert({ path: absPath }).returning('id');
     row = { id };
   }
   const scanFolderId = row.id;
